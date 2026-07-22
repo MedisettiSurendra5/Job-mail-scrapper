@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+server/.env
+.venv
+__pycache__
+.git
+.env
+server/data
+server/prisma/dev.db
+client/dist
+*.log
+sent_log.csv
+jobright_state.json
+Resumes

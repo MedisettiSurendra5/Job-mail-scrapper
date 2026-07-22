@@ -3,7 +3,7 @@ jobright.ai outreach automation.
 
 Flow:
   1. Log in to jobright.ai
-  2. Search SEARCH_TERM, apply filters (Entry + Mid level, Contract, Past 24 hours)
+  2. Search SEARCH_TERM, apply filters (Entry + Mid level, Full-time, Past 24 hours)
   3. Scroll-collect every job card in the (virtualized) results list
   4. For each job -> open it directly via its URL -> read job title/company from
      jobright's own embedded JSON (reliable, not scraped from CSS classes) ->
@@ -49,12 +49,12 @@ JOBRIGHT_PASSWORD = os.environ["JOBRIGHT_PASSWORD"]
 GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 
-SEARCH_TERM = os.environ.get("SEARCH_TERM", "data center technician")
+SEARCH_TERM = os.environ.get("SEARCH_TERM", "Amazon Data Center")
 RESUME_PATH = Path(os.environ.get("RESUME_PATH", "resume.pdf"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 HEADLESS = os.environ.get("HEADLESS", "true").lower() == "true"
 MAX_JOBS = int(os.environ.get("MAX_JOBS", "0"))  # 0 = no limit
-MAX_EMAILS = int(os.environ.get("MAX_EMAILS", "10"))  # stop once this many emails are found/handled, 0 = no limit
+MAX_EMAILS = int(os.environ.get("MAX_EMAILS", "20"))  # stop once this many emails are found/handled, 0 = no limit
 
 STATE_FILE = Path("jobright_state.json")
 LOG_CSV = Path("sent_log.csv")
@@ -243,7 +243,7 @@ def apply_dropdown_filter(page: Page, pref_key: str, option_labels: list):
 
 def apply_filters(page: Page):
     apply_dropdown_filter(page, "seniority", ["Entry Level", "Mid Level"])
-    apply_dropdown_filter(page, "jobTypes", ["Contract"])
+    apply_dropdown_filter(page, "jobTypes", ["Full-time"])
     apply_dropdown_filter(page, "daysAgo", ["Past 24 hours"])
 
 

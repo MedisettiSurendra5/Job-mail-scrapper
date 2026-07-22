@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum support in Prisma, so role/status columns below
+// are plain strings; the allowed values are enforced in application code
+// (see src/types.ts for the corresponding TypeScript unions).
+
+model User {
+  id                  Int      @id @default(autoincrement())
+  email               String   @unique
+  passwordHash        String
+  role                String   @default("member")
+  gmailAddress        String?
+  gmailAppPasswordEnc String?
+  gmailOauthEmail        String?
+  googleRefreshTokenEnc  String?
+  resumeFilename      String?
+  signature           String?
+  sendEnabled         Boolean  @default(true)
+  plan                String   @default("free")
+  planExpiresAt       DateTime?
+  createdAt           DateTime @default(now())
+
+  jobsAdded    Job[]     @relation("JobsAddedBy")
+  contactsSent Contact[] @relation("ContactsSentBy")
+
+  rulesSendAs  AutomationRule[] @relation("RuleSendAs")
+  rulesCreated AutomationRule[] @relation("RuleCreatedBy")
+
+  promoCodesCreated PromoCode[]       @relation("PromoCreatedBy")
+  promoRedemptions  PromoRedemption[] @relation("PromoRedeemedBy")
+}
+
+// A discount/upgrade code an admin can hand out - self-redeemed by a member
+// for temporary Pro/Elite access without any admin action or real payment.
+model PromoCode {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique
+  planTarget     String
+  durationDays   Int       @default(30)
+  maxRedemptions Int?
+  redeemedCount  Int       @default(0)
+  expiresAt      DateTime?
+  createdById    Int
+  createdBy      User      @relation("PromoCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+
+  redemptions PromoRedemption[]
+}
+
+// One row per (user, code) redemption - the unique constraint stops a member
+// from re-redeeming the same code to keep stacking free plan days.
+model PromoRedemption {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User      @relation("PromoRedeemedBy", fields: [userId], references: [id])
+  promoCodeId Int
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id])
+  redeemedAt  DateTime @default(now())
+
+  @@unique([userId, promoCodeId])
+}
+
+// Singleton row (id always 1): the one shared JobRight login used to browse/pull data.
+model JobRightConfig {
+  id               Int      @id @default(1)
+  email            String
+  passwordEnc      String
+  storageStateJson String?
+  updatedAt        DateTime @updatedAt
+}
+
+// Singleton row (id always 1): team-wide safety switches.
+model Settings {
+  id        Int      @id @default(1)
+  dryRun    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model Job {
+  id           Int      @id @default(autoincrement())
+  url          String
+  applyUrl     String?
+  jobRightId   String?
+  title        String?
+  company      String?
+  location       String?
+  employmentType String?
+  workModel      String?
+  seniority      String?
+  datePosted     DateTime?
+  status       String   @default("pending")
+  errorMessage String?
+  applied      Boolean  @default(false)
+  appliedAt    DateTime?
+  addedById    Int
+  addedBy      User     @relation("JobsAddedBy", fields: [addedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  contacts Contact[]
+}
+
+model Contact {
+  id           Int       @id @default(autoincrement())
+  jobId        Int
+  job          Job       @relation(fields: [jobId], references: [id])
+  name         String?
+  title        String?
+  email        String?
+  linkedinUrl  String?
+  subject      String?
+  body         String?
+  status       String    @default("found")
+  sentById     Int?
+  sentBy       User?     @relation("ContactsSentBy", fields: [sentById], references: [id])
+  sentAt       DateTime?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+}
+
+// A saved search + schedule, optionally auto-sending. All filter fields are
+// comma-separated text (see src/types.ts) - option labels verified live
+// against JobRight's filter dropdowns (data-preference-key country,
+// seniority, jobTypes, workModel, daysAgo) before this was wired up.
+model AutomationRule {
+  id            Int       @id @default(autoincrement())
+  name          String
+  searchTerm    String
+  applyFilters  Boolean   @default(true)
+  country       String    @default("")
+  company       String    @default("")
+  seniority     String    @default("Entry Level,Mid Level")
+  jobTypes      String    @default("Full-time")
+  workModel     String    @default("")
+  daysAgo       String    @default("Past 24 hours")
+  maxPerRun     Int       @default(10)
+  autoSend      Boolean   @default(false)
+  sendAsUserId  Int?
+  sendAsUser    User?     @relation("RuleSendAs", fields: [sendAsUserId], references: [id])
+  intervalHours Int       @default(2)
+  enabled       Boolean   @default(true)
+  lastRunAt     DateTime?
+  createdById   Int
+  createdBy     User      @relation("RuleCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+}
+
+model Task {
+  id          Int       @id @default(autoincrement())
+  type        String
+  status      String    @default("queued")
+  payload     String
+  error       String?
+  requestedBy Int?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+}

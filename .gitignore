@@ -1,4 +1,15 @@
 .env
 sent_log.csv
+jobright_state.json
 __pycache__/
 *.pyc
+.venv/
+
+# Node
+node_modules/
+dist/
+client/dist/
+server/dist/
+
+# Server runtime data - SQLite DB, uploaded resumes, JobRight session
+server/data/
