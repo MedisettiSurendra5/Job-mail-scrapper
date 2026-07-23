@@ -72,7 +72,11 @@ automationRulesRouter.get("/", async (_req, res) => {
     orderBy: { id: "desc" },
     include: { sendAsUser: { select: { email: true } }, createdBy: { select: { email: true } } },
   });
-  res.json({ rules: rules.map((r) => ({ ...toJson(r), sendAsEmail: r.sendAsUser?.email, createdByEmail: r.createdBy.email })) });
+  type RuleWithEmails = Parameters<typeof toJson>[0] & {
+    sendAsUser: { email: string } | null;
+    createdBy: { email: string };
+  };
+  res.json({ rules: rules.map((r: RuleWithEmails) => ({ ...toJson(r), sendAsEmail: r.sendAsUser?.email, createdByEmail: r.createdBy.email })) });
 });
 
 automationRulesRouter.post("/", async (req, res) => {
