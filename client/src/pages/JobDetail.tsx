@@ -4,7 +4,7 @@ import { api, ApiError } from "../api";
 import type { Contact, Job } from "../api";
 import { usePollTask } from "../useTaskPolling";
 import { useToast } from "../Toast";
-import { formatDatePosted } from "./Dashboard";
+import { formatDatePosted, jobDisplayTitle } from "./Dashboard";
 
 const STATUS_LABEL: Record<Contact["status"], string> = {
   found: "Not sent yet",
@@ -137,7 +137,7 @@ export function JobDetail() {
       </Link>
       <div className="job-detail-head">
         <div>
-          <h1>{job.title || job.url}</h1>
+          <h1>{jobDisplayTitle(job)}</h1>
           <p className="muted">{job.company}</p>
           {[job.location, job.employmentType, job.workModel, job.seniority].filter(Boolean).length > 0 && (
             <p className="muted small">{[job.location, job.employmentType, job.workModel, job.seniority].filter(Boolean).join(" · ")}</p>

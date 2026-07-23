@@ -21,6 +21,16 @@ function StatusChip({ job }: { job: Job }) {
   return <span className={`chip chip-${job.status}`}>{label}</span>;
 }
 
+// Search-found jobs are created with a placeholder jobright.ai info-page
+// link as their url, then get their real title/company filled in afterward
+// (one job's contacts are pulled at a time, so this can take a bit) - show a
+// clear "still loading" message instead of that meaningless internal URL.
+export function jobDisplayTitle(job: Job): string {
+  if (job.title) return job.title;
+  if (job.status === "pending") return "Loading job details...";
+  return job.url;
+}
+
 function jobMetaLine(job: Job): string {
   const parts = [job.location, job.employmentType, job.workModel, job.seniority];
   if (job.datePosted) parts.push(`Posted ${formatDatePosted(job.datePosted)}`);
@@ -157,7 +167,7 @@ export function Dashboard() {
   async function handleRemove(e: MouseEvent, job: Job) {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(`Remove "${job.title || job.url}" from the list?`)) return;
+    if (!confirm(`Remove "${jobDisplayTitle(job)}" from the list?`)) return;
     try {
       await api.delete(`/jobs/${job.id}`);
       setJobs((prev) => prev.filter((j) => j.id !== job.id));
@@ -418,7 +428,7 @@ export function Dashboard() {
             style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
           >
             <div className="job-row-main">
-              <div className="job-title">{job.title || job.url}</div>
+              <div className="job-title">{jobDisplayTitle(job)}</div>
               <div className="job-sub muted">
                 {job.company || "—"} · added by {job.addedBy?.email}
               </div>
