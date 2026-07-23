@@ -18,7 +18,7 @@ export type TaskStatus = "queued" | "running" | "done" | "failed";
 // Verified live against JobRight's search filter dropdowns
 // (data-preference-key: country, seniority, jobTypes, workModel, daysAgo).
 export const FILTER_OPTIONS = {
-  country: ["United States", "Canada", "United Kingdom"],
+  country: ["United States"],
   seniority: ["Intern/New Grad", "Entry Level", "Mid Level", "Senior Level", "Lead/Staff", "Director/Executive"],
   jobTypes: ["Full-time", "Contract", "Part-time", "Internship"],
   workModel: ["Onsite", "Hybrid", "Remote anywhere in the US"],

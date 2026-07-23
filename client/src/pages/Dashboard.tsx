@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
-import type { BillingInfo, FilterOptions, Job, Task } from "../api";
+import type { BillingInfo, FilterOptions, Job, SearchParams, Task } from "../api";
 import { usePollTask } from "../useTaskPolling";
 import { CheckboxGroup } from "../CheckboxGroup";
 import { JobCalendar } from "../JobCalendar";
 import { useToast } from "../Toast";
 import { useAuth } from "../AuthContext";
+
+const SEARCH_FILTERS_STORAGE_KEY = "jobSearchFilters";
 
 const TASK_LABEL: Record<Task["type"], string> = {
   add_job: "Adding job",
@@ -108,14 +110,38 @@ export function Dashboard() {
 
   useEffect(() => {
     loadJobs();
+
+    const saved = localStorage.getItem(SEARCH_FILTERS_STORAGE_KEY);
+    const savedFilters: Partial<SearchParams> | null = saved ? JSON.parse(saved) : null;
+    if (savedFilters) {
+      if (savedFilters.searchTerm !== undefined) setSearchTerm(savedFilters.searchTerm);
+      if (savedFilters.applyFilters !== undefined) setApplyFilters(savedFilters.applyFilters);
+      if (savedFilters.country !== undefined) setCountry(savedFilters.country);
+      if (savedFilters.company !== undefined) setCompany(savedFilters.company);
+      if (savedFilters.seniority !== undefined) setSeniority(savedFilters.seniority);
+      if (savedFilters.jobTypes !== undefined) setJobTypes(savedFilters.jobTypes);
+      if (savedFilters.workModel !== undefined) setWorkModel(savedFilters.workModel);
+      if (savedFilters.daysAgo !== undefined) setDaysAgo(savedFilters.daysAgo);
+      if (savedFilters.maxPerRun !== undefined) setMaxPerRun(savedFilters.maxPerRun);
+    }
+
     api.get<FilterOptions>("/jobs/filter-options").then((opts) => {
       setFilterOptions(opts);
-      setSeniority(opts.seniority.slice(1, 3)); // Entry Level, Mid Level - matches proven defaults
-      setJobTypes(opts.jobTypes.slice(0, 1)); // Full-time
+      if (!savedFilters) {
+        setSeniority(opts.seniority.slice(1, 3)); // Entry Level, Mid Level - matches proven defaults
+        setJobTypes(opts.jobTypes.slice(0, 1)); // Full-time
+      }
     });
     api.get<BillingInfo>("/billing/me").then((info) => setEffectivePlan(info.effectivePlan));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Remembers whatever the user last searched with (term, filters, etc.) so
+  // reopening the Search Jobs panel doesn't reset to the hardcoded defaults.
+  useEffect(() => {
+    const filters: SearchParams = { searchTerm, applyFilters, country, company, seniority, jobTypes, workModel, daysAgo, maxPerRun };
+    localStorage.setItem(SEARCH_FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  }, [searchTerm, applyFilters, country, company, seniority, jobTypes, workModel, daysAgo, maxPerRun]);
 
   useEffect(() => {
     loadJobs();
