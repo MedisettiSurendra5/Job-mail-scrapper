@@ -19,12 +19,16 @@ async function enqueueSend(
   isAdmin: boolean,
   overrides: { subject?: string; body?: string }
 ) {
-  const contact = await prisma.contact.findUnique({ where: { id: contactId }, include: { job: true } });
-  // A contact's job belongs to whoever added that job - a member can only
-  // send for their own jobs' contacts, same boundary as seeing/deleting the
-  // job itself. Treat someone else's contact as if it didn't exist, same as
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    include: { job: { include: { addedBy: { select: { role: true } } } } },
+  });
+  // Same visibility rule as jobs.ts's canSeeJob: your own job's contacts, or
+  // any admin-posted job's contacts (shared team work items), or everything
+  // if you're the admin. Treat anything else as if it didn't exist, same as
   // the job-visibility checks elsewhere, rather than leaking a 403.
-  if (!contact || (!isAdmin && contact.job.addedById !== userId)) {
+  const canAct = !!contact && (isAdmin || contact.job.addedById === userId || contact.job.addedBy.role === "admin");
+  if (!canAct) {
     throw { status: 404, message: "Contact not found" };
   }
   if (!contact.email) throw { status: 400, message: "This contact has no email on file" };

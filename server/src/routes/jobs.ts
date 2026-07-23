@@ -88,15 +88,18 @@ jobsRouter.post("/", async (req, res) => {
   res.status(201).json({ job, taskId: task.id });
 });
 
-// Only an admin sees the whole team's jobs - every plain member (regardless
-// of plan) only ever sees jobs they personally added. Pro/Elite still
-// unlocks the date filter/calendar view, just scoped to that same
-// already-private job set, not a wider one.
+// Only an admin sees the whole team's jobs, with one exception: a job the
+// admin themselves posted is visible to every member too (shared work items
+// for the team) - a member's own jobs stay private from other members
+// either way. Pro/Elite still unlocks the date filter/calendar view, just
+// scoped to that same visible job set, not a wider one.
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
 
 jobsRouter.get("/", async (req, res) => {
   const isAdmin = req.user!.role === "admin";
-  const where: Record<string, unknown> = isAdmin ? {} : { addedById: req.user!.id };
+  const where: Record<string, unknown> = isAdmin
+    ? {}
+    : { OR: [{ addedById: req.user!.id }, { addedBy: { role: "admin" } }] };
 
   const { from, to } = req.query;
   if (typeof from === "string" || typeof to === "string") {
@@ -121,12 +124,13 @@ jobsRouter.get("/", async (req, res) => {
   res.json({ jobs });
 });
 
-// Shared by the job-detail/contacts/pull-emails endpoints below - a plain
-// member can't reach another member's job by guessing its id any more than
-// they could see it in their own job list. Only an admin has cross-member
-// access; Pro/Elite no longer does (see the note above GET /).
+// Shared by the job-detail/contacts/pull-emails endpoints below - mirrors
+// the GET / visibility rule exactly: your own jobs, any admin-posted job, or
+// everything if you're the admin.
 async function canSeeJob(req: Request, addedById: number): Promise<boolean> {
-  return req.user!.role === "admin" || req.user!.id === addedById;
+  if (req.user!.role === "admin" || req.user!.id === addedById) return true;
+  const adder = await prisma.user.findUnique({ where: { id: addedById }, select: { role: true } });
+  return adder?.role === "admin";
 }
 
 jobsRouter.get("/:id", async (req, res) => {
