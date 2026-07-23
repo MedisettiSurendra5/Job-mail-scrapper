@@ -20,12 +20,14 @@ model User {
   gmailAppPasswordEnc String?
   gmailOauthEmail        String?
   googleRefreshTokenEnc  String?
-  resumeFilename      String?
   signature           String?
   sendEnabled         Boolean  @default(true)
+  locked              Boolean  @default(false)
   plan                String   @default("free")
   planExpiresAt       DateTime?
   createdAt           DateTime @default(now())
+
+  resumes Resume[]
 
   jobsAdded    Job[]     @relation("JobsAddedBy")
   contactsSent Contact[] @relation("ContactsSentBy")
@@ -95,6 +97,7 @@ model Job {
   workModel      String?
   seniority      String?
   datePosted     DateTime?
+  source       String   @default("url")
   status       String   @default("pending")
   errorMessage String?
   applied      Boolean  @default(false)
@@ -161,4 +164,13 @@ model Task {
   createdAt   DateTime  @default(now())
   startedAt   DateTime?
   finishedAt  DateTime?
+}
+
+model Resume {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  filename  String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
 }

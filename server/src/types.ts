@@ -38,8 +38,8 @@ export interface SearchFilters {
 
 export type PlanId = "free" | "pro" | "elite";
 
-export const PLANS: Record<PlanId, { name: string; priceUsd: number; dailyActionLimit: number | null; humanAssistance: boolean }> = {
-  free: { name: "Free", priceUsd: 0, dailyActionLimit: 3, humanAssistance: false },
-  pro: { name: "Pro", priceUsd: 49, dailyActionLimit: null, humanAssistance: false },
-  elite: { name: "Elite", priceUsd: 299, dailyActionLimit: null, humanAssistance: true },
+export const PLANS: Record<PlanId, { name: string; priceUsd: number; dailyActionLimit: number | null; humanAssistance: boolean; maxResumes: number }> = {
+  free: { name: "Free", priceUsd: 0, dailyActionLimit: 3, humanAssistance: false, maxResumes: 1 },
+  pro: { name: "Pro", priceUsd: 49, dailyActionLimit: null, humanAssistance: false, maxResumes: 5 },
+  elite: { name: "Elite", priceUsd: 299, dailyActionLimit: null, humanAssistance: true, maxResumes: 5 },
 };

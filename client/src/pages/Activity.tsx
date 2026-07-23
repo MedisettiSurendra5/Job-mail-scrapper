@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../AuthContext";
 
 interface ActivityContact {
   id: number;
@@ -19,6 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function Activity() {
+  const { user } = useAuth();
   const [contacts, setContacts] = useState<ActivityContact[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +34,7 @@ export function Activity() {
   return (
     <div>
       <h1>Activity</h1>
-      <p className="muted">Recent outreach across the whole team.</p>
+      <p className="muted">{user?.role === "admin" ? "Recent outreach across the whole team." : "Your recent outreach."}</p>
 
       {loading && (
         <div className="skeleton-page">

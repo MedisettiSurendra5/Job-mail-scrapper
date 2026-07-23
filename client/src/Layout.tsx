@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -26,6 +27,7 @@ export function Layout() {
           {user?.role === "admin" && <NavLink to="/admin">Admin</NavLink>}
         </div>
         <div className="topnav-user">
+          <ThemeToggle />
           <span>{user?.email}</span>
           <button onClick={handleLogout}>Log out</button>
         </div>

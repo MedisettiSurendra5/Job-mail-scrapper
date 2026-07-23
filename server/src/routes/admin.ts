@@ -19,10 +19,11 @@ adminRouter.get("/users", async (_req, res) => {
       email: true,
       role: true,
       gmailAddress: true,
-      resumeFilename: true,
       plan: true,
       planExpiresAt: true,
+      locked: true,
       createdAt: true,
+      _count: { select: { resumes: true } },
     },
   });
   res.json({ users });
@@ -31,23 +32,32 @@ adminRouter.get("/users", async (_req, res) => {
 const updateUserSchema = z.object({
   plan: z.enum(["free", "pro", "elite"]).optional(),
   planExpiresAt: z.string().datetime().nullable().optional(),
+  locked: z.boolean().optional(),
 });
 
 // Manually marking a member's plan as paid (checkout happens outside the
 // app, so this is how an admin activates it after payment) - Pro/Elite also
 // grants cross-team job visibility + the calendar view, purely by plan.
+// planExpiresAt is caller-supplied rather than always "+30 days" so an admin
+// can set any custom date, not just fixed increments.
 adminRouter.patch("/users/:id", async (req, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message });
 
-  const data: { plan?: string; planExpiresAt?: Date | null } = {};
+  const targetId = Number(req.params.id);
+  if (parsed.data.locked === true && targetId === req.user!.id) {
+    return res.status(400).json({ error: "You can't lock your own account" });
+  }
+
+  const data: { plan?: string; planExpiresAt?: Date | null; locked?: boolean } = {};
   if (parsed.data.plan !== undefined) data.plan = parsed.data.plan;
   if (parsed.data.planExpiresAt !== undefined) {
     data.planExpiresAt = parsed.data.planExpiresAt ? new Date(parsed.data.planExpiresAt) : null;
   }
+  if (parsed.data.locked !== undefined) data.locked = parsed.data.locked;
 
-  const user = await prisma.user.update({ where: { id: Number(req.params.id) }, data });
-  res.json({ id: user.id, plan: user.plan, planExpiresAt: user.planExpiresAt });
+  const user = await prisma.user.update({ where: { id: targetId }, data });
+  res.json({ id: user.id, plan: user.plan, planExpiresAt: user.planExpiresAt, locked: user.locked });
 });
 
 const promoCodeSchema = z.object({

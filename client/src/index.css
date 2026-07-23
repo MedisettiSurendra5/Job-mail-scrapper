@@ -34,6 +34,34 @@
   }
 }
 
+/* Explicit user choice (ThemeToggle, persisted to localStorage) always wins
+   over the OS-level @media query above, regardless of which way the OS is set. */
+:root[data-theme="light"] {
+  --bg: #f4f6f9;
+  --fg: #14181f;
+  --card-bg: #ffffff;
+  --border: #e3e7ed;
+  --muted: #6b7280;
+  --accent-soft: #dcfce7;
+  --danger-soft: #fee2e2;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 10px 30px rgba(16, 24, 40, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --bg: #12141a;
+  --fg: #e8eaed;
+  --card-bg: #1c1f27;
+  --border: #2b2f3a;
+  --muted: #9ca3af;
+  --accent-soft: rgba(22, 163, 74, 0.18);
+  --danger-soft: rgba(220, 38, 38, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -401,6 +429,10 @@ label {
   color: var(--accent-hover);
 }
 
+.job-search-input {
+  max-width: 16em;
+}
+
 .job-filters-bar {
   display: flex;
   justify-content: space-between;
@@ -528,6 +560,12 @@ label {
 
 .added-by-filter select {
   width: auto;
+}
+
+.expiry-date-input {
+  width: auto;
+  margin-top: 0.3em;
+  font-size: 0.85em;
 }
 
 .date-filter-bar {

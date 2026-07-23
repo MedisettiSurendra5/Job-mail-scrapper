@@ -9,6 +9,6 @@ export function ensureDataDirs() {
   fs.mkdirSync(resumesDir, { recursive: true });
 }
 
-export function resumePathFor(userId: number): string {
-  return path.join(resumesDir, `${userId}.pdf`);
+export function resumePathFor(resumeId: number): string {
+  return path.join(resumesDir, `${resumeId}.pdf`);
 }

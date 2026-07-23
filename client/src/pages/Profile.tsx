@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, ApiError } from "../api";
-import type { Profile as ProfileType } from "../api";
+import type { BillingInfo, Profile as ProfileType } from "../api";
+import { PLAN_CATALOG } from "../api";
 import { useToast } from "../Toast";
 
 const OAUTH_RESULT_MESSAGE: Record<string, { text: string; kind: "success" | "error" }> = {
@@ -17,6 +18,9 @@ export function Profile() {
   const [signature, setSignature] = useState("");
   const [sendEnabled, setSendEnabled] = useState(true);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [resumeActionId, setResumeActionId] = useState<number | null>(null);
+  const [effectivePlan, setEffectivePlan] = useState<BillingInfo["effectivePlan"]>("free");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -33,6 +37,7 @@ export function Profile() {
 
   useEffect(() => {
     load();
+    api.get<BillingInfo>("/billing/me").then((info) => setEffectivePlan(info.effectivePlan));
 
     const params = new URLSearchParams(window.location.search);
     const result = params.get("gmail_oauth");
@@ -81,15 +86,43 @@ export function Profile() {
     if (!resumeFile) return;
     setError(null);
     setMessage(null);
+    setUploadingResume(true);
     const formData = new FormData();
     formData.append("resume", resumeFile);
     try {
-      await api.upload("/users/me/resume", formData);
+      await api.upload("/users/me/resumes", formData);
       setResumeFile(null);
       await load();
       setMessage("Resume uploaded.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to upload resume");
+    } finally {
+      setUploadingResume(false);
+    }
+  }
+
+  async function handleSetPrimaryResume(id: number) {
+    setResumeActionId(id);
+    try {
+      await api.put(`/users/me/resumes/${id}/primary`);
+      await load();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Failed to set primary resume", "error");
+    } finally {
+      setResumeActionId(null);
+    }
+  }
+
+  async function handleDeleteResume(id: number) {
+    setResumeActionId(id);
+    try {
+      await api.delete(`/users/me/resumes/${id}`);
+      await load();
+      show("Resume deleted.", "success");
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Failed to delete resume", "error");
+    } finally {
+      setResumeActionId(null);
     }
   }
 
@@ -168,12 +201,73 @@ export function Profile() {
       </div>
 
       <form className="card" onSubmit={handleUploadResume}>
-        <h2>Resume</h2>
-        <p className="muted">Current: {profile.resumeFilename || "none uploaded yet"}</p>
-        <input type="file" accept="application/pdf" onChange={(e) => setResumeFile(e.target.files?.[0] || null)} />
-        <button type="submit" disabled={!resumeFile}>
-          Upload resume
-        </button>
+        <h2>Resumes</h2>
+        {(() => {
+          const maxResumes = PLAN_CATALOG[effectivePlan].maxResumes;
+          const atCap = profile.resumes.length >= maxResumes;
+          return (
+            <>
+              <p className="muted">
+                {profile.resumes.length} / {maxResumes} used
+                {maxResumes === 1 && (
+                  <>
+                    {" "}
+                    - <a href="/billing">upgrade to Pro</a> for up to 5
+                  </>
+                )}
+              </p>
+              {profile.resumes.length === 0 && <p className="muted small">No resumes uploaded yet.</p>}
+              {profile.resumes.map((r) => (
+                <div className="entry-row" key={r.id}>
+                  <strong>{r.filename}</strong>
+                  {r.isPrimary && <span className="chip chip-sent" style={{ marginLeft: "0.6em" }}>Primary</span>}
+                  <div className="contact-body-actions">
+                    <a
+                      className="btn-secondary btn-small"
+                      href={`/api/users/me/resumes/${r.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View
+                    </a>
+                    {!r.isPrimary && (
+                      <button
+                        type="button"
+                        className="btn-secondary btn-small"
+                        onClick={() => handleSetPrimaryResume(r.id)}
+                        disabled={resumeActionId === r.id}
+                      >
+                        Set primary
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-secondary btn-small btn-danger"
+                      onClick={() => handleDeleteResume(r.id)}
+                      disabled={resumeActionId === r.id}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {atCap ? (
+                <p className="muted small">
+                  {maxResumes === 1
+                    ? "Free plan is limited to 1 resume - upgrade to Pro for up to 5, or delete your current one first."
+                    : `You've reached the ${maxResumes}-resume limit - delete one first to upload another.`}
+                </p>
+              ) : (
+                <>
+                  <input type="file" accept="application/pdf" onChange={(e) => setResumeFile(e.target.files?.[0] || null)} />
+                  <button type="submit" disabled={!resumeFile || uploadingResume}>
+                    {uploadingResume ? "Uploading..." : "Upload resume"}
+                  </button>
+                </>
+              )}
+            </>
+          );
+        })()}
       </form>
     </div>
   );

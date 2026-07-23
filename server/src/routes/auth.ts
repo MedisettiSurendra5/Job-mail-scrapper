@@ -24,6 +24,9 @@ authRouter.post("/login", async (req, res) => {
   if (!user || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
     return res.status(401).json({ error: "Incorrect email or password" });
   }
+  if (user.locked) {
+    return res.status(403).json({ error: "This account has been locked. Contact your admin." });
+  }
 
   const authUser = { id: user.id, email: user.email, role: user.role as Role };
   setAuthCookie(res, authUser);

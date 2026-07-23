@@ -4,16 +4,18 @@ import { api, ApiError } from "../api";
 import type { BulkUploadResult, PlanId, PromoCode } from "../api";
 import { PLAN_CATALOG } from "../api";
 import { AutomationRules } from "../AutomationRules";
+import { useAuth } from "../AuthContext";
 
 interface AdminUser {
   id: number;
   email: string;
   role: "admin" | "member";
   gmailAddress: string | null;
-  resumeFilename: string | null;
   plan: PlanId;
   planExpiresAt: string | null;
+  locked: boolean;
   createdAt: string;
+  _count: { resumes: number };
 }
 
 interface ActivityContact {
@@ -27,6 +29,7 @@ interface ActivityContact {
 }
 
 export function Admin() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [activity, setActivity] = useState<ActivityContact[]>([]);
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
@@ -128,6 +131,23 @@ export function Admin() {
     const planExpiresAt = new Date(base.getTime() + 30 * 86_400_000).toISOString();
     await api.patch(`/admin/users/${user.id}`, { planExpiresAt });
     await load();
+  }
+
+  // Lets an admin set any custom expiry date, not just fixed +30 day steps.
+  async function setCustomExpiry(user: AdminUser, dateStr: string) {
+    if (!dateStr) return;
+    const planExpiresAt = new Date(`${dateStr}T23:59:59.000Z`).toISOString();
+    await api.patch(`/admin/users/${user.id}`, { planExpiresAt });
+    await load();
+  }
+
+  async function toggleLocked(user: AdminUser) {
+    try {
+      await api.patch(`/admin/users/${user.id}`, { locked: !user.locked });
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to update");
+    }
   }
 
   async function createPromoCode(e: FormEvent) {
@@ -324,10 +344,11 @@ export function Admin() {
               <th>Email</th>
               <th>Role</th>
               <th>Gmail</th>
-              <th>Resume</th>
+              <th>Resumes</th>
               <th>Plan</th>
               <th>Expires</th>
               <th></th>
+              <th>Locked</th>
             </tr>
           </thead>
           <tbody>
@@ -336,7 +357,7 @@ export function Admin() {
                 <td>{u.email}</td>
                 <td>{u.role}</td>
                 <td>{u.gmailAddress || "—"}</td>
-                <td>{u.resumeFilename || "—"}</td>
+                <td>{u._count.resumes}</td>
                 <td>
                   <select value={u.plan} onChange={(e) => setUserPlan(u, e.target.value as PlanId)}>
                     <option value="free">Free</option>
@@ -344,13 +365,32 @@ export function Admin() {
                     <option value="elite">Elite</option>
                   </select>
                 </td>
-                <td>{u.planExpiresAt ? new Date(u.planExpiresAt).toLocaleDateString() : "—"}</td>
+                <td>
+                  {u.planExpiresAt ? new Date(u.planExpiresAt).toLocaleDateString() : "—"}
+                  {u.plan !== "free" && (
+                    <input
+                      type="date"
+                      className="expiry-date-input"
+                      defaultValue=""
+                      onChange={(e) => setCustomExpiry(u, e.target.value)}
+                    />
+                  )}
+                </td>
                 <td>
                   {u.plan !== "free" && (
                     <button type="button" className="btn-secondary btn-small" onClick={() => extendUserPlan(u)}>
                       +30 days
                     </button>
                   )}
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={u.locked}
+                    disabled={u.id === currentUser?.id}
+                    title={u.id === currentUser?.id ? "You can't lock your own account" : "Lock this account"}
+                    onChange={() => toggleLocked(u)}
+                  />
                 </td>
               </tr>
             ))}

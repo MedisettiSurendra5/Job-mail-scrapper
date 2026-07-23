@@ -13,9 +13,20 @@ const sendSchema = z.object({
   body: z.string().optional(),
 });
 
-async function enqueueSend(contactId: number, userId: number, overrides: { subject?: string; body?: string }) {
-  const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-  if (!contact) throw { status: 404, message: "Contact not found" };
+async function enqueueSend(
+  contactId: number,
+  userId: number,
+  isAdmin: boolean,
+  overrides: { subject?: string; body?: string }
+) {
+  const contact = await prisma.contact.findUnique({ where: { id: contactId }, include: { job: true } });
+  // A contact's job belongs to whoever added that job - a member can only
+  // send for their own jobs' contacts, same boundary as seeing/deleting the
+  // job itself. Treat someone else's contact as if it didn't exist, same as
+  // the job-visibility checks elsewhere, rather than leaking a 403.
+  if (!contact || (!isAdmin && contact.job.addedById !== userId)) {
+    throw { status: 404, message: "Contact not found" };
+  }
   if (!contact.email) throw { status: 400, message: "This contact has no email on file" };
   if (contact.status === "sent") {
     throw { status: 409, message: "Already sent to this contact" };
@@ -32,7 +43,7 @@ contactsRouter.post("/:id/send", async (req, res) => {
   const parsed = sendSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
   try {
-    const task = await enqueueSend(Number(req.params.id), req.user!.id, parsed.data);
+    const task = await enqueueSend(Number(req.params.id), req.user!.id, req.user!.role === "admin", parsed.data);
     res.json({ taskId: task.id });
   } catch (e: any) {
     res.status(e.status || 500).json({ error: e.message || "Failed to queue send" });
@@ -45,10 +56,11 @@ contactsRouter.post("/send-bulk", async (req, res) => {
   const parsed = bulkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid input" });
 
+  const isAdmin = req.user!.role === "admin";
   const results: { contactId: number; taskId?: number; error?: string }[] = [];
   for (const contactId of parsed.data.contactIds) {
     try {
-      const task = await enqueueSend(contactId, req.user!.id, {});
+      const task = await enqueueSend(contactId, req.user!.id, isAdmin, {});
       results.push({ contactId, taskId: task.id });
     } catch (e: any) {
       results.push({ contactId, error: e.message || "Failed to queue send" });

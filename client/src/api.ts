@@ -49,6 +49,13 @@ export interface User {
   role: "admin" | "member";
 }
 
+export interface Resume {
+  id: number;
+  filename: string;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
 export interface Profile {
   id: number;
   email: string;
@@ -57,7 +64,7 @@ export interface Profile {
   hasGmailAppPassword: boolean;
   gmailOauthEmail: string | null;
   hasGoogleOAuth: boolean;
-  resumeFilename: string | null;
+  resumes: Resume[];
   signature: string | null;
   sendEnabled: boolean;
 }
@@ -74,13 +81,14 @@ export interface Job {
   workModel: string | null;
   seniority: string | null;
   datePosted: string | null;
+  source: "url" | "search";
   status: "pending" | "ready" | "error";
   errorMessage: string | null;
   applied: boolean;
   appliedAt: string | null;
   addedById: number;
   createdAt: string;
-  addedBy?: { email: string };
+  addedBy?: { email: string; role: "admin" | "member" };
   _count?: { contacts: number };
 }
 
@@ -142,10 +150,10 @@ export interface AutomationRule extends SearchParams {
 
 export type PlanId = "free" | "pro" | "elite";
 
-export const PLAN_CATALOG: Record<PlanId, { name: string; priceUsd: number; dailyActionLimit: number | null; humanAssistance: boolean }> = {
-  free: { name: "Free", priceUsd: 0, dailyActionLimit: 3, humanAssistance: false },
-  pro: { name: "Pro", priceUsd: 49, dailyActionLimit: null, humanAssistance: false },
-  elite: { name: "Elite", priceUsd: 299, dailyActionLimit: null, humanAssistance: true },
+export const PLAN_CATALOG: Record<PlanId, { name: string; priceUsd: number; dailyActionLimit: number | null; humanAssistance: boolean; maxResumes: number }> = {
+  free: { name: "Free", priceUsd: 0, dailyActionLimit: 3, humanAssistance: false, maxResumes: 1 },
+  pro: { name: "Pro", priceUsd: 49, dailyActionLimit: null, humanAssistance: false, maxResumes: 5 },
+  elite: { name: "Elite", priceUsd: 299, dailyActionLimit: null, humanAssistance: true, maxResumes: 5 },
 };
 
 export interface BillingInfo {

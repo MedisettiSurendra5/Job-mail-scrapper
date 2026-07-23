@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { prisma } from "../db";
 import { env } from "../env";
 
 export interface AuthUser {
@@ -36,15 +37,26 @@ export function clearAuthCookie(res: Response) {
   res.clearCookie(COOKIE_NAME);
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+// A JWT alone can't be revoked, so a lock wouldn't actually take effect
+// until the token naturally expired (up to 30 days) without this check -
+// the extra lookup by primary key is cheap and keeps "locked" meaning
+// "cut off now", not just "can't start a new session".
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: "Not authenticated" });
+  let authUser: AuthUser;
   try {
-    req.user = jwt.verify(token, env.jwtSecret) as AuthUser;
-    next();
+    authUser = jwt.verify(token, env.jwtSecret) as AuthUser;
   } catch {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
+  const user = await prisma.user.findUnique({ where: { id: authUser.id }, select: { locked: true } });
+  if (!user || user.locked) {
+    clearAuthCookie(res);
+    return res.status(401).json({ error: "This account has been locked. Contact your admin." });
+  }
+  req.user = authUser;
+  next();
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {

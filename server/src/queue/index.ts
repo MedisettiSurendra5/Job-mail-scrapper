@@ -146,6 +146,7 @@ jobrightQueue.register(
             jobRightId,
             status: "pending",
             addedById: payload.requestedBy,
+            source: "search",
           },
         });
 
@@ -205,7 +206,8 @@ emailQueue.register(
     if (!hasOAuth && !hasAppPassword) {
       throw new Error("Connect Gmail via OAuth or set a Gmail address + app password in your profile first");
     }
-    if (!user.resumeFilename) {
+    const primaryResume = await prisma.resume.findFirst({ where: { userId: user.id, isPrimary: true } });
+    if (!primaryResume) {
       throw new Error("You haven't uploaded a resume in your profile yet");
     }
 
@@ -242,8 +244,8 @@ emailQueue.register(
         toEmail: contact.email,
         subject,
         body,
-        resumePath: resumePathFor(user.id),
-        resumeFilename: user.resumeFilename,
+        resumePath: resumePathFor(primaryResume.id),
+        resumeFilename: primaryResume.filename,
         auth: hasOAuth
           ? { type: "oauth2", fromAddress: user.gmailOauthEmail!, refreshToken: decrypt(user.googleRefreshTokenEnc!) }
           : { type: "app_password", fromAddress: user.gmailAddress!, fromAppPassword: decrypt(user.gmailAppPasswordEnc!) },

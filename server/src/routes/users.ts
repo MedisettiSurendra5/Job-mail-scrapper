@@ -6,6 +6,8 @@ import { prisma } from "../db";
 import { encrypt } from "../crypto";
 import { requireAuth } from "../middleware/auth";
 import { resumePathFor } from "../paths";
+import { getEffectivePlan } from "../billing";
+import { PLANS } from "../types";
 
 export const usersRouter = Router();
 usersRouter.use(requireAuth);
@@ -19,7 +21,10 @@ const upload = multer({
 });
 
 usersRouter.get("/me", async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    include: { resumes: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] } },
+  });
   if (!user) return res.status(404).json({ error: "Not found" });
   res.json({
     id: user.id,
@@ -29,7 +34,7 @@ usersRouter.get("/me", async (req, res) => {
     hasGmailAppPassword: !!user.gmailAppPasswordEnc,
     gmailOauthEmail: user.gmailOauthEmail,
     hasGoogleOAuth: !!user.googleRefreshTokenEnc,
-    resumeFilename: user.resumeFilename,
+    resumes: user.resumes,
     signature: user.signature,
     sendEnabled: user.sendEnabled,
   });
@@ -61,12 +66,65 @@ usersRouter.put("/me", async (req, res) => {
   });
 });
 
-usersRouter.post("/me/resume", upload.single("resume"), async (req, res) => {
+usersRouter.post("/me/resumes", upload.single("resume"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-  fs.writeFileSync(resumePathFor(req.user!.id), req.file.buffer);
-  const filename = req.file.originalname;
-  await prisma.user.update({ where: { id: req.user!.id }, data: { resumeFilename: filename } });
-  res.json({ resumeFilename: filename });
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  const existingCount = await prisma.resume.count({ where: { userId: user.id } });
+  const maxResumes = PLANS[getEffectivePlan(user)].maxResumes;
+  if (existingCount >= maxResumes) {
+    return res.status(403).json({
+      error:
+        maxResumes === 1
+          ? "Free plan is limited to 1 resume - upgrade to Pro for up to 5, or delete your current one first"
+          : `You've reached the ${maxResumes}-resume limit - delete one first`,
+    });
+  }
+
+  const resume = await prisma.resume.create({
+    data: { userId: user.id, filename: req.file.originalname, isPrimary: existingCount === 0 },
+  });
+  fs.writeFileSync(resumePathFor(resume.id), req.file.buffer);
+  res.status(201).json({ resume });
+});
+
+usersRouter.delete("/me/resumes/:id", async (req, res) => {
+  const resume = await prisma.resume.findUnique({ where: { id: Number(req.params.id) } });
+  if (!resume || resume.userId !== req.user!.id) return res.status(404).json({ error: "Resume not found" });
+
+  await prisma.resume.delete({ where: { id: resume.id } });
+  fs.rmSync(resumePathFor(resume.id), { force: true });
+
+  // A primary must keep pointing at something whenever any resume remains -
+  // the send pipeline depends on there always being at most one, unambiguous
+  // primary resume per user.
+  if (resume.isPrimary) {
+    const next = await prisma.resume.findFirst({ where: { userId: req.user!.id }, orderBy: { createdAt: "desc" } });
+    if (next) await prisma.resume.update({ where: { id: next.id }, data: { isPrimary: true } });
+  }
+  res.json({ ok: true });
+});
+
+usersRouter.put("/me/resumes/:id/primary", async (req, res) => {
+  const resume = await prisma.resume.findUnique({ where: { id: Number(req.params.id) } });
+  if (!resume || resume.userId !== req.user!.id) return res.status(404).json({ error: "Resume not found" });
+
+  await prisma.$transaction([
+    prisma.resume.updateMany({ where: { userId: req.user!.id, isPrimary: true }, data: { isPrimary: false } }),
+    prisma.resume.update({ where: { id: resume.id }, data: { isPrimary: true } }),
+  ]);
+  res.json({ ok: true });
+});
+
+usersRouter.get("/me/resumes/:id/file", async (req, res) => {
+  const resume = await prisma.resume.findUnique({ where: { id: Number(req.params.id) } });
+  if (!resume || resume.userId !== req.user!.id) return res.status(404).json({ error: "Resume not found" });
+
+  const path = resumePathFor(resume.id);
+  if (!fs.existsSync(path)) return res.status(404).json({ error: "File missing on disk" });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${resume.filename.replace(/"/g, "")}"`);
+  fs.createReadStream(path).pipe(res);
 });
 
 // Lets a user fall back to app-password sending if they want to stop using

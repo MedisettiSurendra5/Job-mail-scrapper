@@ -6,8 +6,13 @@ import { PLAN_CATALOG } from "../api";
 import { useToast } from "../Toast";
 
 const PLAN_FEATURES: Record<PlanId, string[]> = {
-  free: ["3 actions/day (adding jobs + sending resumes, combined)", "Search, pull contacts, manual review"],
-  pro: ["Unlimited job adds and resume sends", "All search and automation features", "Priority contact scraping"],
+  free: ["3 actions/day (adding jobs + sending resumes, combined)", "Search, pull contacts, manual review", "1 saved resume"],
+  pro: [
+    "Unlimited job adds and resume sends",
+    "All search and automation features",
+    "Priority contact scraping",
+    "Up to 5 saved resumes",
+  ],
   elite: ["Everything in Pro", "A dedicated person who applies to jobs for you", "White-glove onboarding"],
 };
 

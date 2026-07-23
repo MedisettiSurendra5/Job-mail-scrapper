@@ -7,6 +7,7 @@ import { usePollTask } from "../useTaskPolling";
 import { CheckboxGroup } from "../CheckboxGroup";
 import { JobCalendar } from "../JobCalendar";
 import { useToast } from "../Toast";
+import { useAuth } from "../AuthContext";
 
 const TASK_LABEL: Record<Task["type"], string> = {
   add_job: "Adding job",
@@ -34,11 +35,15 @@ export function formatDatePosted(iso: string): string {
 }
 
 type AppliedFilter = "all" | "applied";
+type SourceFilter = "all" | "external" | "admin";
 
 export function Dashboard() {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [addedByFilter, setAddedByFilter] = useState("all");
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,9 +189,21 @@ export function Dashboard() {
   // the viewer is an admin or on a Pro/Elite plan.
   const addedByEmails = [...new Set(jobs.map((j) => j.addedBy?.email).filter((e): e is string => !!e))];
   const appliedCount = jobs.filter((j) => j.applied).length;
+  // "External" means a job someone pasted in by URL themselves, as distinct
+  // from one an admin posted - the two are mutually exclusive categories,
+  // not "url-sourced" including admin's own url-pasted jobs too.
+  const externalCount = jobs.filter((j) => j.source === "url" && j.addedBy?.role !== "admin").length;
+  const adminPostedCount = jobs.filter((j) => j.addedBy?.role === "admin").length;
+  const query = searchQuery.trim().toLowerCase();
   const visibleJobs = jobs
     .filter((j) => addedByFilter === "all" || j.addedBy?.email === addedByFilter)
-    .filter((j) => appliedFilter === "all" || j.applied);
+    .filter((j) => appliedFilter === "all" || j.applied)
+    .filter(
+      (j) =>
+        sourceFilter === "all" ||
+        (sourceFilter === "external" ? j.source === "url" && j.addedBy?.role !== "admin" : j.addedBy?.role === "admin")
+    )
+    .filter((j) => !query || (j.title || "").toLowerCase().includes(query) || (j.company || "").toLowerCase().includes(query));
 
   return (
     <div>
@@ -300,6 +317,40 @@ export function Dashboard() {
           </button>
         </div>
 
+        <div className="tabs">
+          <button
+            type="button"
+            className={`tab ${sourceFilter === "all" ? "tab-active" : ""}`}
+            onClick={() => setSourceFilter("all")}
+          >
+            All sources
+          </button>
+          <button
+            type="button"
+            className={`tab ${sourceFilter === "external" ? "tab-active" : ""}`}
+            onClick={() => setSourceFilter("external")}
+          >
+            External ({externalCount})
+          </button>
+          {adminPostedCount > 0 && (
+            <button
+              type="button"
+              className={`tab ${sourceFilter === "admin" ? "tab-active" : ""}`}
+              onClick={() => setSourceFilter("admin")}
+            >
+              Admin posted ({adminPostedCount})
+            </button>
+          )}
+        </div>
+
+        <input
+          type="search"
+          className="job-search-input"
+          placeholder="Search title or company..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+
         {addedByEmails.length > 1 && (
           <label className="added-by-filter">
             Added by
@@ -354,7 +405,11 @@ export function Dashboard() {
         <JobCalendar jobs={visibleJobs} monthCursor={monthCursor} onMonthChange={setMonthCursor} />
       ) : (
       <div className="job-list">
-        {visibleJobs.length === 0 && <p className="muted">No jobs added yet - paste a URL or search above to get started.</p>}
+        {visibleJobs.length === 0 && (
+          <p className="muted">
+            {jobs.length === 0 ? "No jobs added yet - paste a URL or search above to get started." : "No jobs match your filters."}
+          </p>
+        )}
         {visibleJobs.map((job, i) => (
           <Link
             to={`/jobs/${job.id}`}
@@ -385,9 +440,11 @@ export function Dashboard() {
                     {job.applied ? "Unmark Applied" : "Mark Applied"}
                   </button>
                 )}
-                <button type="button" className="btn-secondary btn-small btn-danger" onClick={(e) => handleRemove(e, job)}>
-                  Remove
-                </button>
+                {(user?.role === "admin" || job.addedById === user?.id) && (
+                  <button type="button" className="btn-secondary btn-small btn-danger" onClick={(e) => handleRemove(e, job)}>
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
           </Link>
