@@ -1,4 +1,6 @@
 import { BrowserContext, Page, chromium, errors as playwrightErrors } from "playwright";
+import fs from "fs/promises";
+import path from "path";
 import { prisma } from "../db";
 import { decrypt } from "../crypto";
 import { env } from "../env";
@@ -104,16 +106,44 @@ async function getBrowser() {
   return sharedBrowser;
 }
 
+// Captures a screenshot + HTML snapshot of whatever the (headless) browser
+// is actually showing when a login step fails - a plain Playwright timeout
+// message doesn't say whether jobright.ai changed its markup, is showing a
+// bot-check/CAPTCHA, or something else entirely, and there's no way to
+// attach a debugger to the headless instance to look ourselves.
+async function dumpDebugState(page: Page, label: string) {
+  try {
+    const dir = path.join(env.dataDir, "debug");
+    await fs.mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = path.join(dir, `${stamp}-${label}`);
+    await page.screenshot({ path: `${base}.png`, fullPage: true }).catch(() => {});
+    await fs.writeFile(`${base}.html`, await page.content()).catch(() => {});
+  } catch {
+    /* best-effort diagnostic only, never let it mask the real error */
+  }
+}
+
 async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
   await page.goto("https://jobright.ai/", { waitUntil: "domcontentloaded" });
   await sleep(2000);
 
-  await robustClick(page, page.getByText("Sign in", { exact: false }).first(), 5, 6000);
+  try {
+    await robustClick(page, page.getByText("Sign in", { exact: false }).first(), 5, 6000);
+  } catch (e) {
+    await dumpDebugState(page, "login-open-modal-failed");
+    throw e;
+  }
   await sleep(1500);
 
   await page.getByPlaceholder("Email").fill(jrEmail, { timeout: 10000 });
   await page.getByPlaceholder("Password").fill(jrPassword, { timeout: 10000 });
-  await robustClick(page, page.getByRole("button", { name: "Sign in", exact: false }), 5, 6000);
+  try {
+    await robustClick(page, page.getByRole("button", { name: "Sign in", exact: false }), 5, 6000);
+  } catch (e) {
+    await dumpDebugState(page, "login-submit-failed");
+    throw e;
+  }
 
   await safeWait(page);
   await sleep(2000);
