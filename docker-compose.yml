@@ -1,31 +1,32 @@
 services:
   app:
     build: .
-    ports:
-      - "4000:4000"
+    network_mode: host
+
     env_file:
       - .env
+
     environment:
-      # These override whatever's in .env - container paths, not host paths.
       DATA_DIR: /app/data
       DATABASE_URL: "file:/app/data/app.db"
       HEADLESS: "true"
       NODE_ENV: production
+
     volumes:
-      - app-data:/app/data
+      - /var/services/web_packages/Job-mail-scrapper/data:/app/data
+
     restart: unless-stopped
 
-  # Exposes `app` to your domain through Cloudflare without opening any
-  # ports on your router - see DEPLOY.md for how to get a tunnel token.
-  # Remove this whole service if you're not using a Cloudflare Tunnel.
   cloudflared:
     image: cloudflare/cloudflared:latest
+    network_mode: host
+
     command: tunnel run
+
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+
     depends_on:
       - app
-    restart: unless-stopped
 
-volumes:
-  app-data:
+    restart: unless-stopped

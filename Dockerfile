@@ -16,10 +16,15 @@ RUN npm run build
 # --- Stage 2: runtime - needs Chromium + its system deps for Playwright ---
 FROM mcr.microsoft.com/playwright:v1.61.1-jammy AS runtime
 WORKDIR /app/server
+COPY server/package.json ./
 
-COPY --from=build /app/server/node_modules ./node_modules
-COPY --from=build /app/server/dist ./dist
+RUN npm i
+
 COPY --from=build /app/server/prisma ./prisma
+
+RUN npx prisma generate
+
+COPY --from=build /app/server/dist ./dist
 COPY --from=build /app/server/package.json ./package.json
 COPY --from=build /app/client/dist ./dist/public
 
