@@ -16,7 +16,10 @@ const TASK_LABEL: Record<Task["type"], string> = {
   pull_emails: "Pulling contacts",
   send_email: "Sending resume",
   run_search: "Search",
+  sync_github_h1b: "Recommended sync",
 };
+
+const RECOMMENDED_LIMIT = 50;
 
 function StatusChip({ job }: { job: Job }) {
   const label = { pending: "Adding...", ready: "Ready", error: "Error" }[job.status];
@@ -47,7 +50,7 @@ export function formatDatePosted(iso: string): string {
 }
 
 type AppliedFilter = "all" | "applied";
-type SourceFilter = "all" | "external" | "admin";
+type SourceFilter = "all" | "external" | "admin" | "recommended";
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -69,6 +72,8 @@ export function Dashboard() {
       show("Search complete - results added to your job list.", "success");
     } else if (task.type === "add_job") {
       show("Job added and contacts pulled.", "success");
+    } else if (task.type === "sync_github_h1b") {
+      show("Recommended jobs updated.", "success");
     }
   });
 
@@ -85,6 +90,7 @@ export function Dashboard() {
   const [maxPerRun, setMaxPerRun] = useState(10);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Date filter + calendar view are Pro/Elite only - effectivePlan comes
   // from the existing /billing/me endpoint (same one Billing.tsx uses)
@@ -190,6 +196,19 @@ export function Dashboard() {
     }
   }
 
+  async function handleSyncRecommended() {
+    setSyncing(true);
+    try {
+      const { taskId } = await api.post<{ taskId: number }>("/jobs/recommended/sync");
+      watch(taskId);
+      show("Recommended sync started - new jobs will appear below shortly.", "info");
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Failed to start sync", "error");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function handleRemove(e: MouseEvent, job: Job) {
     e.preventDefault();
     e.stopPropagation();
@@ -230,13 +249,27 @@ export function Dashboard() {
   // not "url-sourced" including admin's own url-pasted jobs too.
   const externalCount = jobs.filter((j) => j.source === "url" && j.addedBy?.role !== "admin").length;
   const adminPostedCount = jobs.filter((j) => j.addedBy?.role === "admin").length;
+  // The Recommended tab is capped to the top RECOMMENDED_LIMIT, most-recently-
+  // posted first - the sync task can leave more than that in the DB over
+  // time (each 24h run only adds newly-appeared jobs, never removes old
+  // ones), so the cap is enforced here rather than relying on however many
+  // happen to exist.
+  const recommendedJobs = [...jobs]
+    .filter((j) => j.source === "github_h1b")
+    .sort((a, b) => {
+      const ad = a.datePosted ? new Date(a.datePosted).getTime() : 0;
+      const bd = b.datePosted ? new Date(b.datePosted).getTime() : 0;
+      return bd !== ad ? bd - ad : b.id - a.id;
+    })
+    .slice(0, RECOMMENDED_LIMIT);
   const query = searchQuery.trim().toLowerCase();
-  const visibleJobs = jobs
+  const visibleJobs = (sourceFilter === "recommended" ? recommendedJobs : jobs)
     .filter((j) => addedByFilter === "all" || j.addedBy?.email === addedByFilter)
     .filter((j) => appliedFilter === "all" || j.applied)
     .filter(
       (j) =>
         sourceFilter === "all" ||
+        sourceFilter === "recommended" ||
         (sourceFilter === "external" ? j.source === "url" && j.addedBy?.role !== "admin" : j.addedBy?.role === "admin")
     )
     .filter((j) => !query || (j.title || "").toLowerCase().includes(query) || (j.company || "").toLowerCase().includes(query));
@@ -377,7 +410,20 @@ export function Dashboard() {
               Admin posted ({adminPostedCount})
             </button>
           )}
+          <button
+            type="button"
+            className={`tab ${sourceFilter === "recommended" ? "tab-active" : ""}`}
+            onClick={() => setSourceFilter("recommended")}
+          >
+            Recommended ({recommendedJobs.length})
+          </button>
         </div>
+
+        {sourceFilter === "recommended" && user?.role === "admin" && (
+          <button type="button" className="btn-secondary btn-small" onClick={handleSyncRecommended} disabled={syncing}>
+            {syncing ? "Syncing..." : "Sync now"}
+          </button>
+        )}
 
         <input
           type="search"

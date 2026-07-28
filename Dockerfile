@@ -19,6 +19,10 @@ WORKDIR /app/server
 COPY server/package.json ./
 
 RUN npm i
+# Don't rely on the base image's baked-in browser cache matching whatever
+# user/HOME this container actually runs as (varies by host/orchestrator) -
+# install the exact browser build this playwright version needs, explicitly.
+RUN npx playwright install --with-deps chromium
 
 COPY --from=build /app/server/prisma ./prisma
 

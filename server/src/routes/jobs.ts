@@ -1,9 +1,10 @@
 import { Request, Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
-import { requireAuth } from "../middleware/auth";
+import { requireAdmin, requireAuth } from "../middleware/auth";
 import { jobrightQueue } from "../queue";
 import { assertWithinQuota, getEffectivePlan } from "../billing";
+import { runGithubH1bSyncNow } from "../scheduler";
 import { FILTER_OPTIONS } from "../types";
 
 // Every member's jobs/contacts/activity are private to them - only an admin
@@ -37,6 +38,14 @@ const searchSchema = z.object({
 });
 
 jobsRouter.get("/filter-options", (_req, res) => res.json(FILTER_OPTIONS));
+
+// Lets an admin pull the Recommended tab's next batch immediately instead of
+// waiting for the 24h scheduled sync (see scheduler.ts) - e.g. right after
+// deploying this feature.
+jobsRouter.post("/recommended/sync", requireAdmin, async (req, res) => {
+  const task = await runGithubH1bSyncNow(req.user!.id);
+  res.json({ taskId: task.id });
+});
 
 // A member's activity feed only ever shows contacts *they* sent to - never
 // another member's or the admin's sends. Admins alone get the full

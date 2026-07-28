@@ -81,7 +81,7 @@ export interface Job {
   workModel: string | null;
   seniority: string | null;
   datePosted: string | null;
-  source: "url" | "search";
+  source: "url" | "search" | "github_h1b";
   status: "pending" | "ready" | "error";
   errorMessage: string | null;
   applied: boolean;
@@ -111,7 +111,7 @@ export interface Contact {
 
 export interface Task {
   id: number;
-  type: "add_job" | "pull_emails" | "send_email" | "run_search";
+  type: "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_github_h1b";
   status: "queued" | "running" | "done" | "failed";
   error: string | null;
 }

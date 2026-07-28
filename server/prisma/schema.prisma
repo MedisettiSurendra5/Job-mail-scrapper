@@ -89,7 +89,7 @@ model Job {
   id           Int      @id @default(autoincrement())
   url          String
   applyUrl     String?
-  jobRightId   String?
+  jobRightId   String?  @unique
   title        String?
   company      String?
   location       String?

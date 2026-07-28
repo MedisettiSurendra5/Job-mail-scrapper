@@ -12,7 +12,7 @@ export type ContactStatus =
   | "skipped_duplicate"
   | "skipped_disabled"
   | "dry_run";
-export type TaskType = "add_job" | "pull_emails" | "send_email" | "run_search";
+export type TaskType = "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_github_h1b";
 export type TaskStatus = "queued" | "running" | "done" | "failed";
 
 // Verified live against JobRight's search filter dropdowns

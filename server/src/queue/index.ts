@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { decrypt } from "../crypto";
 import { addExternalJob, getJobrightContext, pullContactsForJob, runSearch } from "../automation/jobright";
+import { fetchTopSoftwareEngineerJobs } from "../automation/githubH1b";
 import { sendOutreachEmail } from "../automation/mailer";
 import { resumePathFor } from "../paths";
 import { sanitizeErrorMessage } from "../sanitize";
@@ -181,6 +182,46 @@ jobrightQueue.register(
     }
   }
 );
+
+// Syncs the top of jobright-ai's public "Software Engineer" H1B tracker
+// (github.com/jobright-ai/Daily-H1B-Jobs-In-Tech) into the Recommended tab.
+// Every linked job already lives on jobright.ai, so this reuses the exact
+// same pull-contacts pipeline as run_search - only the source of jobRightIds
+// differs. The jobRightId unique constraint plus this findFirst check
+// together make re-running the sync (scheduled every 24h, or right after a
+// restart) a safe no-op for jobs already known.
+jobrightQueue.register("sync_github_h1b", async (payload: { requestedBy: number; limit?: number }) => {
+  const entries = await fetchTopSoftwareEngineerJobs(payload.limit ?? 50);
+  const context = await getJobrightContext();
+  try {
+    for (const entry of entries) {
+      const existing = await prisma.job.findFirst({ where: { jobRightId: entry.jobRightId } });
+      if (existing) continue;
+
+      const job = await prisma.job.create({
+        data: {
+          url: `https://jobright.ai/jobs/info/${entry.jobRightId}`,
+          jobRightId: entry.jobRightId,
+          status: "pending",
+          addedById: payload.requestedBy,
+          source: "github_h1b",
+        },
+      });
+
+      try {
+        await pullAndStoreContacts(context, { id: job.id, jobRightId: entry.jobRightId, url: job.url });
+      } catch (e: any) {
+        // One bad job in the batch shouldn't sink the rest of the sync.
+        await prisma.job.update({
+          where: { id: job.id },
+          data: { status: "error", errorMessage: sanitizeErrorMessage(String(e?.message || e)) },
+        });
+      }
+    }
+  } finally {
+    await context.close();
+  }
+});
 
 emailQueue.register(
   "send_email",
