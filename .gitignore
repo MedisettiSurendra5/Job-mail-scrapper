@@ -13,3 +13,6 @@ server/dist/
 
 # Server runtime data - SQLite DB, uploaded resumes, JobRight session
 server/data/
+
+# Desktop/Mac app - removed from the build, kept here as an unused backup
+.removed/

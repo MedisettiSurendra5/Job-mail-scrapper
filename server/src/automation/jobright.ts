@@ -102,6 +102,12 @@ let sharedBrowser: import("playwright").Browser | null = null;
 async function getBrowser() {
   if (!sharedBrowser) {
     sharedBrowser = await chromium.launch({ headless: env.headless });
+    // If Chromium crashes (e.g. OOM/low /dev/shm) the stale reference must
+    // not stick around - every future job would hang forever trying to use
+    // a dead browser instead of launching a fresh one.
+    sharedBrowser.on("disconnected", () => {
+      sharedBrowser = null;
+    });
   }
   return sharedBrowser;
 }

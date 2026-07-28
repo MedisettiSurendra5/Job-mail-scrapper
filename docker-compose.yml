@@ -2,6 +2,7 @@ services:
   app:
     build: .
     network_mode: host
+    shm_size: "1gb"
 
     env_file:
       - .env
