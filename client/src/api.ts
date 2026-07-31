@@ -1,4 +1,6 @@
 const BASE = "/api";
+const DEFAULT_TIMEOUT_MS = 20000;
+const UPLOAD_TIMEOUT_MS = 60000;
 
 class ApiError extends Error {
   status: number;
@@ -8,12 +10,27 @@ class ApiError extends Error {
   }
 }
 
+// A stalled tunnel/server-hang used to leave callers `await`-ing forever with
+// no error - an AbortController-driven timeout guarantees every call settles.
+async function timedFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (controller.signal.aborted) throw new ApiError("Request timed out - please try again.", 0);
+    throw new ApiError("Network error - please check your connection and try again.", 0);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-  });
+  const res = await timedFetch(
+    `${BASE}${path}`,
+    { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init?.headers || {}) } },
+    DEFAULT_TIMEOUT_MS
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.error || `Request failed (${res.status})`, res.status);
@@ -32,7 +49,7 @@ export const api = {
     request<T>(path, { method: "PATCH", body: data !== undefined ? JSON.stringify(data) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   upload: async <T>(path: string, formData: FormData): Promise<T> => {
-    const res = await fetch(`${BASE}${path}`, { method: "POST", credentials: "include", body: formData });
+    const res = await timedFetch(`${BASE}${path}`, { method: "POST", credentials: "include", body: formData }, UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new ApiError(body.error || `Request failed (${res.status})`, res.status);

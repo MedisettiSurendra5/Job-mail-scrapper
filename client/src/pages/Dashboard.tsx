@@ -162,7 +162,7 @@ export function Dashboard() {
       const { job, taskId } = await api.post<{ job: Job; taskId: number }>("/jobs", { url });
       setUrl("");
       await loadJobs();
-      watch(taskId);
+      watch(taskId, "add_job");
       void job;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to add job");
@@ -187,7 +187,7 @@ export function Dashboard() {
         daysAgo,
         maxPerRun,
       });
-      watch(taskId);
+      watch(taskId, "run_search");
       show("Search started - results will appear below shortly.", "info");
     } catch (e) {
       setSearchError(e instanceof ApiError ? e.message : "Failed to start search");
@@ -200,7 +200,7 @@ export function Dashboard() {
     setSyncing(true);
     try {
       const { taskId } = await api.post<{ taskId: number }>("/jobs/recommended/sync");
-      watch(taskId);
+      watch(taskId, "sync_github_h1b");
       show("Recommended sync started - new jobs will appear below shortly.", "info");
     } catch (e) {
       show(e instanceof ApiError ? e.message : "Failed to start sync", "error");

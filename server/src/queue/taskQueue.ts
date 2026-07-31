@@ -13,7 +13,7 @@ export class TaskQueue {
   private pending: number[] = [];
   private activeCount = 0;
 
-  constructor(private concurrency: number) {}
+  constructor(private concurrency: number, private timeoutMs = 10 * 60 * 1000) {}
 
   register(type: TaskType, handler: Handler) {
     this.handlers.set(type, handler);
@@ -61,14 +61,30 @@ export class TaskQueue {
     if (!handler) return;
 
     await prisma.task.update({ where: { id: taskId }, data: { status: "running", startedAt: new Date() } });
+
+    // A wedged handler (e.g. a stalled Playwright page) must not block this
+    // concurrency-1 queue forever - race it against a watchdog timeout. The
+    // handler keeps running in the background if it loses the race; its
+    // eventual settlement is caught below so it can't crash the process.
+    const handlerPromise = handler(JSON.parse(task.payload), taskId);
+    handlerPromise.catch(() => {});
+    let timer: ReturnType<typeof setTimeout>;
+
     try {
-      await handler(JSON.parse(task.payload), taskId);
+      await Promise.race([
+        handlerPromise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Task timed out after ${Math.round(this.timeoutMs / 1000)}s`)), this.timeoutMs);
+        }),
+      ]);
       await prisma.task.update({ where: { id: taskId }, data: { status: "done", finishedAt: new Date() } });
     } catch (e: any) {
       await prisma.task.update({
         where: { id: taskId },
         data: { status: "failed", error: sanitizeErrorMessage(String(e?.message || e)), finishedAt: new Date() },
       });
+    } finally {
+      clearTimeout(timer!);
     }
   }
 }

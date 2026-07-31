@@ -86,7 +86,7 @@ export function JobDetail() {
     try {
       const e = edited(c);
       const { taskId } = await api.post<{ taskId: number }>(`/contacts/${c.id}/send`, e);
-      watch(taskId);
+      watch(taskId, "send_email");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to queue send");
     }
@@ -110,7 +110,7 @@ export function JobDetail() {
         "/contacts/send-bulk",
         { contactIds: [...selected] }
       );
-      results.forEach((r) => r.taskId && watch(r.taskId));
+      results.forEach((r) => r.taskId && watch(r.taskId, "send_email"));
       setSelected(new Set());
       show(`Queued ${results.filter((r) => r.taskId).length} send(s).`, "info");
     } catch (e) {
