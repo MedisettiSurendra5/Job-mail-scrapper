@@ -1,9 +1,16 @@
+import type { BrowserContext } from "playwright";
 import { prisma } from "../db";
 import { decrypt } from "../crypto";
-import { addExternalJob, getJobrightContext, pullContactsForJob, runSearch } from "../automation/jobright";
+import {
+  addExternalJob,
+  getJobrightContext,
+  pullContactsForJob,
+  runSearch,
+  saveJobrightSession,
+} from "../automation/jobright";
 import { fetchTopSoftwareEngineerJobs } from "../automation/githubH1b";
 import { sendOutreachEmail } from "../automation/mailer";
-import { refreshAccessToken } from "../automation/googleOAuth";
+import { GoogleRefreshTokenRevokedError, refreshAccessToken } from "../automation/googleOAuth";
 import { classifyEmail, fetchApplicationEmails } from "../automation/emailTracker";
 import { resumePathFor } from "../paths";
 import { sanitizeErrorMessage } from "../sanitize";
@@ -85,14 +92,20 @@ async function pullAndStoreContacts(
 // job shows up with its contacts already pulled), so both steps run back to
 // back in the same browser session rather than requiring a second click.
 jobrightQueue.register("add_job", async (payload: { jobId: number; url: string }) => {
-  const context = await getJobrightContext();
+  // getJobrightContext() must stay INSIDE the try: it is where a failed
+  // JobRight login throws, and a throw outside would skip the catch below,
+  // leaving the Job row stuck at "pending" with a null errorMessage - a
+  // silent hang with no explanation anywhere in the UI.
+  let context: BrowserContext | null = null;
   try {
+    context = await getJobrightContext();
     const result = await addExternalJob(context, payload.url);
     await prisma.job.update({
       where: { id: payload.jobId },
       data: { jobRightId: result.jobId, title: result.title, company: result.company },
     });
     await pullAndStoreContacts(context, { id: payload.jobId, jobRightId: result.jobId, url: payload.url, ...result });
+    await saveJobrightSession(context);
   } catch (e: any) {
     try {
       await prisma.job.update({
@@ -106,7 +119,7 @@ jobrightQueue.register("add_job", async (payload: { jobId: number; url: string }
     }
     throw e;
   } finally {
-    await context.close();
+    await context?.close();
   }
 });
 
@@ -120,11 +133,13 @@ jobrightQueue.register("pull_emails", async (payload: { jobId: number }) => {
   const existingCount = await prisma.contact.count({ where: { jobId: job.id } });
   if (existingCount > 0) return;
 
-  const context = await getJobrightContext();
+  let context: BrowserContext | null = null;
   try {
+    context = await getJobrightContext();
     await pullAndStoreContacts(context, { ...job, jobRightId });
+    await saveJobrightSession(context);
   } finally {
-    await context.close();
+    await context?.close();
   }
 });
 
@@ -138,8 +153,9 @@ jobrightQueue.register(
     sendAsUserId?: number;
     ruleId?: number;
   }) => {
-    const context = await getJobrightContext();
+    let context: BrowserContext | null = null;
     try {
+      context = await getJobrightContext();
       const jobIds = await runSearch(context, payload.filters, payload.maxPerRun);
 
       for (const jobRightId of jobIds) {
@@ -182,8 +198,9 @@ jobrightQueue.register(
       if (payload.ruleId) {
         await prisma.automationRule.update({ where: { id: payload.ruleId }, data: { lastRunAt: new Date() } });
       }
+      await saveJobrightSession(context);
     } finally {
-      await context.close();
+      await context?.close();
     }
   }
 );
@@ -197,8 +214,9 @@ jobrightQueue.register(
 // restart) a safe no-op for jobs already known.
 jobrightQueue.register("sync_github_h1b", async (payload: { requestedBy: number; limit?: number }) => {
   const entries = await fetchTopSoftwareEngineerJobs(payload.limit ?? 50);
-  const context = await getJobrightContext();
+  let context: BrowserContext | null = null;
   try {
+    context = await getJobrightContext();
     for (const entry of entries) {
       const existing = await prisma.job.findFirst({ where: { jobRightId: entry.jobRightId } });
       if (existing) continue;
@@ -223,8 +241,9 @@ jobrightQueue.register("sync_github_h1b", async (payload: { requestedBy: number;
         });
       }
     }
+    await saveJobrightSession(context);
   } finally {
-    await context.close();
+    await context?.close();
   }
 });
 
@@ -238,7 +257,21 @@ trackerQueue.register("sync_application_tracker", async (payload: { userId: numb
   if (!user.trackerEnabled) return;
   if (!user.googleRefreshTokenEnc) throw new Error("Connect Gmail from your Profile page first.");
 
-  const { access_token } = await refreshAccessToken(decrypt(user.googleRefreshTokenEnc));
+  let access_token: string;
+  try {
+    ({ access_token } = await refreshAccessToken(decrypt(user.googleRefreshTokenEnc)));
+  } catch (e) {
+    // A revoked/expired grant never recovers on its own. Drop the dead token
+    // so the Profile page flips back to "not connected" and the member is
+    // actually prompted to reconnect.
+    if (e instanceof GoogleRefreshTokenRevokedError) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { gmailOauthEmail: null, googleRefreshTokenEnc: null },
+      });
+    }
+    throw e;
+  }
   const emails = await fetchApplicationEmails(access_token, user.trackerLastSyncAt);
 
   // Oldest first, so when multiple emails resolve to the same company the
