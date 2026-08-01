@@ -1,6 +1,11 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        # Surfaced by GET /api/health. Export GIT_SHA before `docker compose
+        # up --build` (see DEPLOY.md) to make the deployed commit verifiable.
+        GIT_SHA: ${GIT_SHA:-unknown}
     network_mode: host
     shm_size: "1gb"
 
