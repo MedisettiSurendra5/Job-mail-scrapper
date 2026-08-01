@@ -23,6 +23,12 @@ async function main() {
   await initScheduler();
 
   const app = express();
+  // Exactly one hop in front of us: the Cloudflare Tunnel sidecar, which
+  // reaches this server over plaintext localhost. Without this req.protocol
+  // reports "http" and the derived OAuth redirect_uri wouldn't match the
+  // https:// URL registered with Google.
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
   app.use(express.json({ limit: "2mb" }));
   app.use(cookieParser());
 
@@ -36,7 +42,9 @@ async function main() {
   app.use("/api/billing", billingRouter);
   app.use("/api/tracker", trackerRouter);
 
-  app.get("/api/health", (_req, res) => res.json({ ok: true }));
+  // gitSha is baked in at image build time (Dockerfile ARG GIT_SHA), so
+  // "is prod actually running what I pushed?" is one curl away.
+  app.get("/api/health", (_req, res) => res.json({ ok: true, gitSha: process.env.GIT_SHA || "unknown" }));
 
   // Serve the built React app (multi-stage Docker build copies it here).
   const clientDist = path.join(__dirname, "public");

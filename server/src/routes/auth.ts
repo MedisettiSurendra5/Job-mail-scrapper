@@ -6,7 +6,13 @@ import { prisma } from "../db";
 import { clearAuthCookie, requireAuth, setAuthCookie } from "../middleware/auth";
 import { encrypt } from "../crypto";
 import { env } from "../env";
-import { buildGoogleAuthUrl, emailFromIdToken, exchangeCodeForTokens } from "../automation/googleOAuth";
+import {
+  buildGoogleAuthUrl,
+  emailFromIdToken,
+  exchangeCodeForTokens,
+  isGoogleOAuthConfigured,
+  resolveGoogleRedirectUri,
+} from "../automation/googleOAuth";
 import { Role } from "../types";
 
 export const authRouter = Router();
@@ -75,14 +81,17 @@ authRouter.get("/me", requireAuth, (req, res) => {
 // (stops a forged/replayed callback from attaching tokens to someone else's
 // account).
 authRouter.get("/google/connect", requireAuth, (req, res) => {
-  if (!env.googleClientId || !env.googleClientSecret || !env.googleRedirectUri) {
+  if (!isGoogleOAuthConfigured()) {
     return res.status(501).json({ error: "Google OAuth is not configured on this server" });
   }
   const state = jwt.sign({ uid: req.user!.id }, env.jwtSecret, { expiresIn: "10m" });
-  res.redirect(buildGoogleAuthUrl(state));
+  res.redirect(buildGoogleAuthUrl(state, resolveGoogleRedirectUri(req)));
 });
 
 authRouter.get("/google/callback", requireAuth, async (req, res) => {
+  if (!isGoogleOAuthConfigured()) {
+    return res.status(501).json({ error: "Google OAuth is not configured on this server" });
+  }
   const { code, state, error } = req.query;
   if (error || typeof code !== "string") return res.redirect("/profile?gmail_oauth=denied");
 
@@ -94,7 +103,7 @@ authRouter.get("/google/callback", requireAuth, async (req, res) => {
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code);
+    const tokens = await exchangeCodeForTokens(code, resolveGoogleRedirectUri(req));
     const email = tokens.id_token ? emailFromIdToken(tokens.id_token) : null;
 
     const existing = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
