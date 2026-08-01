@@ -13,8 +13,12 @@ services:
       HEADLESS: "true"
       NODE_ENV: production
 
+    # Deliberately OUTSIDE the git checkout. When this pointed at
+    # <checkout>/data the running app kept the working tree dirty and
+    # `git pull` on the NAS aborted, so deploys stopped landing.
+    # See DEPLOY.md > "Migrating the data directory" for the one-time move.
     volumes:
-      - /var/services/web_packages/Job-mail-scrapper/data:/app/data
+      - /volume1/docker/jobvana-data:/app/data
 
     restart: unless-stopped
 
