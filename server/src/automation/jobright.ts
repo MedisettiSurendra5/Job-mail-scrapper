@@ -548,6 +548,25 @@ export interface PulledJob {
   contacts: PulledContact[];
 }
 
+// Fallback for when the embedded JSON's applyLink/originalUrl come back empty
+// (seen on some listings, e.g. search/github_h1b-sourced jobs whose only URL
+// otherwise is our own synthetic jobright.ai info-page link) - the rendered
+// page also carries a plain "Original Job Post" link pointing at the same
+// real posting, confirmed live to match applyLink/originalUrl when both are
+// present. Read it directly rather than leaving applyUrl empty.
+async function findOriginalJobPostLink(page: Page): Promise<string | null> {
+  try {
+    const link = page.getByRole("link", { name: "Original Job Post", exact: false }).first();
+    if (await link.count()) {
+      const href = await link.getAttribute("href");
+      if (href) return href;
+    }
+  } catch {
+    /* best-effort fallback only - never let this fail the whole pull */
+  }
+  return null;
+}
+
 export async function pullContactsForJob(context: BrowserContext, jobId: string): Promise<PulledJob> {
   const page = await context.newPage();
   try {
@@ -560,7 +579,7 @@ export async function pullContactsForJob(context: BrowserContext, jobId: string)
     const data = await extractJobJson(page);
     const title = data.jobResult.jobTitle;
     const company = data.companyResult.companyName;
-    const applyUrl = data.jobResult.applyLink || data.jobResult.originalUrl || "";
+    const applyUrl = data.jobResult.applyLink || data.jobResult.originalUrl || (await findOriginalJobPostLink(page)) || "";
     const location = data.jobResult.jobLocation || "";
     const employmentType = data.jobResult.employmentType || "";
     const workModel = data.jobResult.workModel || "";
