@@ -4,6 +4,7 @@ import path from "path";
 import { prisma } from "../db";
 import { decrypt } from "../crypto";
 import { env } from "../env";
+import { storageStatePath } from "../paths";
 import { SearchFilters } from "../types";
 
 const PWTimeoutError = playwrightErrors.TimeoutError;
@@ -145,7 +146,7 @@ async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
   await page.getByPlaceholder("Email").fill(jrEmail, { timeout: 10000 });
   await page.getByPlaceholder("Password").fill(jrPassword, { timeout: 10000 });
   try {
-    await robustClick(page, page.getByRole("button", { name: "Sign in", exact: false }), 5, 6000);
+    await robustClick(page, page.getByRole("button", { name: "Sign in", exact: false }).first(), 5, 6000);
   } catch (e) {
     await dumpDebugState(page, "login-submit-failed");
     throw e;
@@ -166,33 +167,57 @@ export async function getJobrightContext(): Promise<BrowserContext> {
   const browser = await getBrowser();
   const jrPassword = decrypt(config.passwordEnc);
 
-  let context: BrowserContext;
-  if (config.storageStateJson) {
-    context = await browser.newContext({ storageState: JSON.parse(config.storageStateJson) });
-  } else {
-    context = await browser.newContext();
+  const context = config.storageStateJson
+    ? await browser.newContext({ storageState: JSON.parse(config.storageStateJson) })
+    : await browser.newContext();
+
+  // Nothing has taken ownership of `context` yet, so a throw from here on
+  // would leak it - the callers' `finally { context.close() }` only runs once
+  // they've actually received one. A single failing login per retry is
+  // harmless; an automation rule retrying hourly is not.
+  let page: Page | null = null;
+  try {
+    page = await context.newPage();
+    await page.goto("https://jobright.ai/jobs/recommend", { waitUntil: "domcontentloaded" });
+    await sleep(2000);
+
+    const loggedOut = await page
+      .getByText("Sign in", { exact: false })
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (loggedOut) {
+      await loginFresh(page, config.email, jrPassword);
+      await saveJobrightSession(context);
+      await page.goto("https://jobright.ai/jobs/recommend", { waitUntil: "domcontentloaded" });
+      await sleep(1500);
+    }
+
+    await page.close();
+    return context;
+  } catch (e) {
+    await page?.close().catch(() => {});
+    await context.close().catch(() => {});
+    throw e;
   }
+}
 
-  const page = await context.newPage();
-  await page.goto("https://jobright.ai/jobs/recommend", { waitUntil: "domcontentloaded" });
-  await sleep(2000);
-
-  const loggedOut = await page
-    .getByText("Sign in", { exact: false })
-    .first()
-    .isVisible()
-    .catch(() => false);
-
-  if (loggedOut) {
-    await loginFresh(page, config.email, jrPassword);
+// Persists the live cookies/localStorage back to both the DB (what
+// getJobrightContext reads) and the data volume (what seed() reads on a fresh
+// DB). Called after every successful task, not just after a fresh login, so
+// JobRight's rolling session refreshes are retained instead of being
+// discarded the moment the context closes.
+export async function saveJobrightSession(context: BrowserContext): Promise<void> {
+  try {
     const storageStateJson = JSON.stringify(await context.storageState());
     await prisma.jobRightConfig.update({ where: { id: 1 }, data: { storageStateJson } });
-    await page.goto("https://jobright.ai/jobs/recommend", { waitUntil: "domcontentloaded" });
-    await sleep(1500);
+    await fs.writeFile(storageStatePath, storageStateJson);
+  } catch (e) {
+    // A task that already did its real work must not be reported as failed
+    // just because the session snapshot couldn't be written.
+    console.warn("Could not persist the JobRight session:", e);
   }
-
-  await page.close();
-  return context;
 }
 
 // ---------------------------------------------------------------------------
