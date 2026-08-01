@@ -16,6 +16,32 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+
+// Open self-signup - joins the one shared team as a regular "member" (same
+// role Admin > Add a team member grants), on the free plan, and logs them
+// straight in. Mirrors adminRouter's createUserSchema/POST /users, just
+// self-service and without the role choice.
+authRouter.post("/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message });
+
+  const email = parsed.data.email.toLowerCase();
+  if (await prisma.user.findUnique({ where: { email } })) {
+    return res.status(409).json({ error: "An account with that email already exists" });
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+  const user = await prisma.user.create({ data: { email, passwordHash, role: "member" } });
+
+  const authUser = { id: user.id, email: user.email, role: user.role as Role };
+  setAuthCookie(res, authUser);
+  res.status(201).json({ user: authUser });
+});
+
 authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid email/password" });

@@ -128,9 +128,20 @@ export interface Contact {
 
 export interface Task {
   id: number;
-  type: "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_github_h1b";
+  type: "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_github_h1b" | "sync_application_tracker";
   status: "queued" | "running" | "done" | "failed";
   error: string | null;
+}
+
+export type ApplicationStatus = "applied" | "screening" | "phone_interview" | "upcoming_interview" | "rejected";
+
+export interface TrackedApplication {
+  id: number;
+  company: string;
+  roleTitle: string | null;
+  status: ApplicationStatus;
+  lastEmailSubject: string;
+  lastEmailAt: string;
 }
 
 export interface FilterOptions {

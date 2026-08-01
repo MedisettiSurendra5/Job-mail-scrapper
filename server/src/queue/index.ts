@@ -3,6 +3,8 @@ import { decrypt } from "../crypto";
 import { addExternalJob, getJobrightContext, pullContactsForJob, runSearch } from "../automation/jobright";
 import { fetchTopSoftwareEngineerJobs } from "../automation/githubH1b";
 import { sendOutreachEmail } from "../automation/mailer";
+import { refreshAccessToken } from "../automation/googleOAuth";
+import { classifyEmail, fetchApplicationEmails } from "../automation/emailTracker";
 import { resumePathFor } from "../paths";
 import { sanitizeErrorMessage } from "../sanitize";
 import { SearchFilters } from "../types";
@@ -12,6 +14,9 @@ import { TaskQueue } from "./taskQueue";
 export const jobrightQueue = new TaskQueue(1);
 // Pure SMTP sends, no browser involved - a little parallelism is fine.
 export const emailQueue = new TaskQueue(2);
+// Per-user Gmail API reads - no shared login/browser constraint, so this is
+// entirely independent of the queue above.
+export const trackerQueue = new TaskQueue(2);
 
 const EMAIL_MIN_DELAY_MS = 8000;
 const EMAIL_MAX_DELAY_MS = 20000;
@@ -223,6 +228,55 @@ jobrightQueue.register("sync_github_h1b", async (payload: { requestedBy: number;
   }
 });
 
+// Reads whatever's new in the member's inbox since the last sync (or the
+// last 90 days on a first run), classifies each candidate email, and
+// upserts one TrackedApplication row per company - see
+// automation/emailTracker.ts for the classification rules and why company
+// name (not Gmail thread id) is the grouping key.
+trackerQueue.register("sync_application_tracker", async (payload: { userId: number }) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.userId } });
+  if (!user.trackerEnabled) return;
+  if (!user.googleRefreshTokenEnc) throw new Error("Connect Gmail from your Profile page first.");
+
+  const { access_token } = await refreshAccessToken(decrypt(user.googleRefreshTokenEnc));
+  const emails = await fetchApplicationEmails(access_token, user.trackerLastSyncAt);
+
+  // Oldest first, so when multiple emails resolve to the same company the
+  // last upsert reflects whichever one is actually most recent.
+  const ordered = [...emails].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  for (const email of ordered) {
+    const classified = classifyEmail(email.subject, email.snippet, email.from);
+    if (!classified) continue;
+
+    await prisma.trackedApplication.upsert({
+      where: { userId_companyKey: { userId: user.id, companyKey: classified.companyKey } },
+      create: {
+        userId: user.id,
+        company: classified.company,
+        companyKey: classified.companyKey,
+        roleTitle: classified.roleTitle,
+        status: classified.status,
+        lastEmailSubject: email.subject,
+        lastEmailSnippet: email.snippet,
+        lastEmailAt: email.date,
+        gmailMessageId: email.id,
+      },
+      update: {
+        company: classified.company,
+        roleTitle: classified.roleTitle,
+        status: classified.status,
+        lastEmailSubject: email.subject,
+        lastEmailSnippet: email.snippet,
+        lastEmailAt: email.date,
+        gmailMessageId: email.id,
+      },
+    });
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { trackerLastSyncAt: new Date() } });
+});
+
 emailQueue.register(
   "send_email",
   async (payload: { contactId: number; userId: number; subject?: string; body?: string }) => {
@@ -308,4 +362,5 @@ emailQueue.register(
 export async function startQueues() {
   await jobrightQueue.resume();
   await emailQueue.resume();
+  await trackerQueue.resume();
 }

@@ -22,6 +22,7 @@ export function Layout() {
             Jobs
           </NavLink>
           <NavLink to="/activity">Activity</NavLink>
+          <NavLink to="/tracker">Tracker</NavLink>
           <NavLink to="/billing">Billing</NavLink>
           <NavLink to="/profile">Profile</NavLink>
           {user?.role === "admin" && <NavLink to="/admin">Admin</NavLink>}

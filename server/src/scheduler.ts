@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { jobrightQueue } from "./queue";
+import { jobrightQueue, trackerQueue } from "./queue";
 import { SearchFilters } from "./types";
 
 // One in-process setInterval per enabled AutomationRule. Interval
@@ -77,6 +77,11 @@ export async function initScheduler() {
     startGithubH1bSync(admin.id);
     runGithubH1bSyncNow(admin.id).catch((e) => console.error("GitHub H1B sync failed:", e));
   }
+
+  const trackerUsers = await prisma.user.findMany({ where: { trackerEnabled: true } });
+  for (const u of trackerUsers) {
+    startTrackerSync(u.id);
+  }
 }
 
 // Keeps the Recommended tab topped up from jobright-ai's public H1B tracker
@@ -97,4 +102,33 @@ function startGithubH1bSync(adminId: number) {
   githubSyncTimer = setInterval(() => {
     runGithubH1bSyncNow(adminId).catch((e) => console.error("GitHub H1B sync failed:", e));
   }, GITHUB_SYNC_INTERVAL_MS);
+}
+
+// Keeps a member's Application Tracker (auto-classified from their Gmail
+// inbox - see automation/emailTracker.ts) up to date. One timer per opted-in
+// user, started/stopped directly from routes/tracker.ts's enable toggle so
+// flipping it takes effect immediately rather than waiting for a restart.
+const TRACKER_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const trackerTimers = new Map<number, ReturnType<typeof setInterval>>();
+
+export function runTrackerSyncNow(userId: number) {
+  return trackerQueue.enqueue("sync_application_tracker", { userId }, userId);
+}
+
+export function startTrackerSync(userId: number) {
+  stopTrackerSync(userId);
+  trackerTimers.set(
+    userId,
+    setInterval(() => {
+      runTrackerSyncNow(userId).catch((e) => console.error(`Application tracker sync failed for user ${userId}:`, e));
+    }, TRACKER_SYNC_INTERVAL_MS)
+  );
+}
+
+export function stopTrackerSync(userId: number) {
+  const t = trackerTimers.get(userId);
+  if (t) {
+    clearInterval(t);
+    trackerTimers.delete(userId);
+  }
 }

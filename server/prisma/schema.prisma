@@ -25,9 +25,13 @@ model User {
   locked              Boolean  @default(false)
   plan                String   @default("free")
   planExpiresAt       DateTime?
+  trackerEnabled      Boolean  @default(false)
+  trackerLastSyncAt   DateTime?
   createdAt           DateTime @default(now())
 
   resumes Resume[]
+
+  trackedApplications TrackedApplication[]
 
   jobsAdded    Job[]     @relation("JobsAddedBy")
   contactsSent Contact[] @relation("ContactsSentBy")
@@ -173,4 +177,28 @@ model Resume {
   filename  String
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+// One row per company a member has applied to, built up from classifying
+// their Gmail inbox (see src/automation/emailTracker.ts) - grouped by
+// companyKey rather than Gmail thread id, since an ATS's "applied" ->
+// "rejected"/"interview" emails are usually separate threads, not replies.
+// Each sync overwrites status/lastEmail* with whatever's most recent.
+model TrackedApplication {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  user             User     @relation(fields: [userId], references: [id])
+  company          String
+  companyKey       String
+  roleTitle        String?
+  status           String
+  lastEmailSubject String
+  lastEmailSnippet String?
+  lastEmailAt      DateTime
+  gmailMessageId   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, companyKey])
+  @@index([userId, lastEmailAt])
 }

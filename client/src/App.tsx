@@ -3,12 +3,14 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { Layout } from "./Layout";
 import { Login } from "./pages/Login";
+import { Signup } from "./pages/Signup";
 import { Dashboard } from "./pages/Dashboard";
 import { JobDetail } from "./pages/JobDetail";
 import { Profile } from "./pages/Profile";
 import { Admin } from "./pages/Admin";
 import { Activity } from "./pages/Activity";
 import { Billing } from "./pages/Billing";
+import { Tracker } from "./pages/Tracker";
 
 function RequireAuth({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
@@ -27,6 +29,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
       <Route
         element={
           <RequireAuth>
@@ -37,6 +40,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/activity" element={<Activity />} />
+        <Route path="/tracker" element={<Tracker />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/profile" element={<Profile />} />
         <Route

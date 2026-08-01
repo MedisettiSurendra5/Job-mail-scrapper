@@ -12,8 +12,16 @@ const PLAN_FEATURES: Record<PlanId, string[]> = {
     "All search and automation features",
     "Priority contact scraping",
     "Up to 5 saved resumes",
+    "Automatic Application Tracker - reads your inbox and sorts every application into Applied, Screening, Phone Interview, Upcoming Interview, or Rejected",
+    "Early access to all new jobs before they're widely available",
+    "Early access to upcoming features as we ship them",
   ],
-  elite: ["Everything in Pro", "A dedicated person who applies to jobs for you", "White-glove onboarding"],
+  elite: [
+    "Everything in Pro",
+    "A dedicated person who applies to jobs for you",
+    "White-glove onboarding",
+    "First access to future premium features",
+  ],
 };
 
 export function Billing() {

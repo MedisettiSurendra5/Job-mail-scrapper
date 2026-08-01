@@ -406,13 +406,17 @@ label {
 
 .chip-pending,
 .chip-queued,
-.chip-running {
+.chip-running,
+.chip-screening,
+.chip-phone_interview,
+.chip-upcoming_interview {
   background: #fef9c3;
   color: #854d0e;
 }
 
 .chip-error,
-.chip-send_failed {
+.chip-send_failed,
+.chip-rejected {
   background: #fee2e2;
   color: #991b1b;
 }
@@ -893,6 +897,13 @@ label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1em;
+}
+
+.tracker-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1em;
+  align-items: start;
 }
 
 .plan-card {

@@ -14,6 +14,7 @@ import { contactsRouter } from "./routes/contacts";
 import { tasksRouter } from "./routes/tasks";
 import { automationRulesRouter } from "./routes/automationRules";
 import { billingRouter } from "./routes/billing";
+import { trackerRouter } from "./routes/tracker";
 
 async function main() {
   ensureDataDirs();
@@ -33,6 +34,7 @@ async function main() {
   app.use("/api/tasks", tasksRouter);
   app.use("/api/admin/automation-rules", automationRulesRouter);
   app.use("/api/billing", billingRouter);
+  app.use("/api/tracker", trackerRouter);
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

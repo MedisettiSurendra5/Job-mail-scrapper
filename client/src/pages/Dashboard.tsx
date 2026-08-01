@@ -17,6 +17,7 @@ const TASK_LABEL: Record<Task["type"], string> = {
   send_email: "Sending resume",
   run_search: "Search",
   sync_github_h1b: "Recommended sync",
+  sync_application_tracker: "Syncing applications",
 };
 
 const RECOMMENDED_LIMIT = 50;
