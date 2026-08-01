@@ -81,6 +81,7 @@ export interface Profile {
   hasGmailAppPassword: boolean;
   gmailOauthEmail: string | null;
   hasGoogleOAuth: boolean;
+  oauthConfigured: boolean;
   resumes: Resume[];
   signature: string | null;
   sendEnabled: boolean;

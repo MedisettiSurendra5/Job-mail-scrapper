@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { encrypt } from "../crypto";
 import { requireAuth } from "../middleware/auth";
+import { isGoogleOAuthConfigured } from "../automation/googleOAuth";
 import { resumePathFor } from "../paths";
 import { getEffectivePlan } from "../billing";
 import { PLANS } from "../types";
@@ -34,6 +35,9 @@ usersRouter.get("/me", async (req, res) => {
     hasGmailAppPassword: !!user.gmailAppPasswordEnc,
     gmailOauthEmail: user.gmailOauthEmail,
     hasGoogleOAuth: !!user.googleRefreshTokenEnc,
+    // Lets the Profile page say "unavailable on this server" up front instead
+    // of offering a Connect button that navigates the tab to a raw 501.
+    oauthConfigured: isGoogleOAuthConfigured(),
     resumes: user.resumes,
     signature: user.signature,
     sendEnabled: user.sendEnabled,

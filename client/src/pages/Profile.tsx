@@ -193,10 +193,23 @@ export function Profile() {
               {disconnectingGoogle ? "Disconnecting..." : "Disconnect"}
             </button>
           </>
-        ) : (
+        ) : profile.oauthConfigured ? (
           <a className="btn-link" href="/api/auth/google/connect">
             Connect Gmail
           </a>
+        ) : (
+          <>
+            {/* Connect is a full-page navigation, not a fetch, so without this
+                guard an unconfigured server navigates the whole tab to raw
+                501 JSON. */}
+            <button type="button" className="btn-link" disabled>
+              Connect Gmail
+            </button>
+            <p className="muted small">
+              Google sign-in isn't set up on this server yet - ask your admin to configure it. In the meantime, use
+              the Gmail address + app password above.
+            </p>
+          </>
         )}
       </div>
 
