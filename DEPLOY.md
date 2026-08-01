@@ -9,24 +9,67 @@ simplest path is building right on the NAS.
 
 ## 1. Get the project onto the NAS
 
-Copy the whole project folder (everything in this repo) onto the NAS, e.g.
-via File Station, `scp`, or a Git checkout if the NAS has git. A shared
-folder like `/volume1/docker/jobright-outreach/` works well.
+Clone this repo onto the NAS (a plain copy via File Station or `scp` works
+too, but then every update is a manual re-copy). The current deployment lives
+at `/volume1/web_packages/Job-mail-scrapper`, so the paths in the rest of this
+document assume that location - substitute your own if it differs.
+
+Keep the checkout separate from the app's data directory (§2b); they used to
+overlap, which broke updates.
 
 ## 2. Fill in `.env`
 
-Copy `.env.example` to `.env` in the project root and fill in real values:
+Copy `.env.example` to `.env` in the project root and fill in real values.
+Every variable the app reads is documented there; the ones you must set:
 
-- `JOBRIGHT_EMAIL` / `JOBRIGHT_PASSWORD` - the one shared JobRight login.
 - `JWT_SECRET` / `ENCRYPTION_KEY` - generate with `openssl rand -hex 32` (run
   this on any machine, doesn't have to be the NAS).
+- `JOBRIGHT_EMAIL` / `JOBRIGHT_PASSWORD` - the one shared JobRight login.
 - `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` - creates your first admin
   login on first boot only. Change your password after logging in once,
   then feel free to delete these two lines.
+- `CLOUDFLARE_TUNNEL_TOKEN` - see §5.
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - optional, see §6.
 - Leave `DATA_DIR` / `DATABASE_URL` alone - `docker-compose.yml` overrides
   them to the right in-container paths automatically.
 
+`.env` is injected into the container by `docker-compose.yml`'s `env_file`, so
+anything missing from it is silently missing in production too.
+
 **Do not commit `.env`.** It holds real credentials.
+
+## 2b. Where the data lives
+
+`docker-compose.yml` bind-mounts **`/volume1/docker/jobvana-data`** to
+`/app/data` in the container. That directory holds the SQLite DB
+(`app.db`), uploaded resumes, the JobRight session (`jobright_state.json`),
+and the automation's debug screenshots (`debug/`). Create it before the first
+start:
+
+```
+sudo mkdir -p /volume1/docker/jobvana-data
+```
+
+It is deliberately **outside the git checkout**. It used to be the checkout's
+own `data/` directory, and because the running app writes to the DB
+continuously, the working tree was permanently dirty and `git pull` aborted
+with *"Your local changes would be overwritten by merge: data/app.db"* - so
+code changes silently stopped reaching production.
+
+### Migrating an existing deployment
+
+One-time move, with the app stopped so nothing is mid-write:
+
+```
+cd /volume1/web_packages/Job-mail-scrapper
+sudo docker compose down
+sudo mkdir -p /volume1/docker/jobvana-data
+sudo cp -a data/. /volume1/docker/jobvana-data/
+sudo cp -a jobright_state.json /volume1/docker/jobvana-data/   # if present
+```
+
+Keep the old `data/` directory around until you've confirmed the new
+deployment works, then delete it.
 
 ## 3. Start it with Container Manager
 
@@ -36,17 +79,16 @@ Either:
   containing `docker-compose.yml` → Build.
 - **SSH**, if you've enabled it (Control Panel → Terminal & SNMP):
   ```
-  cd /volume1/docker/jobright-outreach
-  sudo docker compose up -d --build
+  cd /volume1/web_packages/Job-mail-scrapper
+  GIT_SHA=$(git rev-parse --short HEAD) sudo -E docker compose up -d --build
   ```
 
 First boot will take a few minutes (installing the Playwright/Chromium
 runtime image, `npm run build`, then running the DB migration). Once it's
 up, the app listens on port 4000 - visit `http://<nas-ip>:4000`.
 
-If you want a nicer URL/HTTPS, put Synology's built-in reverse proxy
-(Control Panel → Login Portal → Advanced → Reverse Proxy) in front of
-`localhost:4000`.
+For a public URL over HTTPS, use the Cloudflare Tunnel in §5 - that is how
+jobvana.in is served today.
 
 ## 4. First login
 
@@ -87,10 +129,11 @@ service ready to go; you just need to create the tunnel and give it a token.
    tab and add one:
    - **Subdomain**: whatever you want, e.g. `jobs`
    - **Domain**: pick your domain from the dropdown
-   - **Service Type**: `HTTP`, **URL**: `app:4000` (the two containers share
-     an internal Docker network, so `app` resolves to the other container by
-     its compose service name - no need for the NAS's actual IP or port
-     4000 to be reachable from outside at all)
+   - **Service Type**: `HTTP`, **URL**: `http://localhost:4000` - both
+     services run with `network_mode: host`, so there is no user-defined
+     Docker network and no DNS entry for `app`; the tunnel reaches the API
+     over the host's own loopback. Port 4000 still doesn't need to be
+     reachable from outside the NAS.
    - Save. Cloudflare creates the DNS record for you automatically.
 5. Start (or restart) everything so the new `cloudflared` service picks up
    the token:
@@ -106,6 +149,12 @@ Leave Cloudflare's SSL/TLS mode at its default (**Full**) - the tunnel
 itself is already an encrypted connection to Cloudflare's edge, so there's
 no origin certificate to install on the NAS.
 
+The server sets `trust proxy` to **1**, meaning exactly one proxy hop (the
+tunnel) in front of it. That is what lets it see the browser's real `https`
+scheme and hostname over the plaintext loopback connection - which the Google
+OAuth callback URL is derived from (§6). If you ever put another proxy in
+front of the tunnel, raise that number in `server/src/index.ts` to match.
+
 **Don't want a tunnel?** The alternative is forwarding port 443 on your
 router to the NAS, setting up Synology's built-in reverse proxy (Control
 Panel → Login Portal → Advanced → Reverse Proxy) pointing at
@@ -114,14 +163,90 @@ a DNS A record in Cloudflare pointing at your home IP. This works but
 exposes your NAS's IP to the internet and breaks if your ISP changes it - the
 tunnel avoids both problems, which is why it's the recommended path above.
 
+## 6. Connecting Google OAuth (optional)
+
+Members can send outreach either with a Gmail app password (§4) or by
+clicking **Connect Gmail** on their Profile page, which is the OAuth flow.
+The Gmail application tracker requires OAuth - an app password cannot read
+mail. Until the two variables below are set, Profile shows a disabled
+Connect button explaining the feature is unavailable.
+
+1. In [console.cloud.google.com](https://console.cloud.google.com), create (or
+   pick) a project and enable the **Gmail API** under *APIs & Services →
+   Library*.
+2. *APIs & Services → OAuth consent screen*: choose **External**, fill in the
+   app name and support email, and add these scopes:
+   - `https://www.googleapis.com/auth/gmail.send` - sending outreach
+   - `https://www.googleapis.com/auth/gmail.readonly` - the application tracker
+   - `openid` and `email` - identifies which account was connected
+3. *APIs & Services → Credentials → Create credentials → OAuth client ID*,
+   type **Web application**. Under **Authorized redirect URIs** add exactly:
+   ```
+   https://jobvana.in/api/auth/google/callback
+   ```
+   Google rejects non-HTTPS redirect URIs for anything but `localhost`, so a
+   LAN address like `http://192.168.1.5:4000/...` can never be registered -
+   connect Gmail through the public domain.
+4. Put the generated client ID and secret in `.env` as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`, then `sudo docker compose up -d --build`.
+
+   Leave `GOOGLE_REDIRECT_URI` unset: the callback URL is derived from the
+   request, so it is automatically correct on every origin the app answers on.
+   Only set it if the public origin differs from the one reaching the server,
+   and then it must match step 3 byte for byte.
+5. Verify by logging in and clicking **Connect Gmail** on the Profile page.
+
+> ⚠️ **Publish the consent screen.** `gmail.readonly` is a *restricted* scope.
+> While the project's publishing status is **Testing**, Google only issues
+> tokens to explicitly-listed test users **and expires their refresh tokens
+> after 7 days** - which looks exactly like "OAuth worked, then broke a week
+> later". Move the consent screen to **In production** (restricted scopes
+> require Google's verification review) for connections that last.
+>
+> If a member connected before `gmail.readonly` was added to the scope list,
+> their existing token doesn't retroactively gain read access - they must
+> **Disconnect** and reconnect from Profile.
+
 ## Updating after a code change
 
 ```
-cd /volume1/docker/jobright-outreach
-git pull   # or re-copy the updated files
-sudo docker compose up -d --build
+cd /volume1/web_packages/Job-mail-scrapper
+git pull
+GIT_SHA=$(git rev-parse --short HEAD) sudo -E docker compose up -d --build
 ```
 
-The SQLite DB, resumes, and JobRight session all live in the `app-data`
-named volume, so they survive rebuilds. To fully reset, `docker compose down
--v` (this deletes all data - users, jobs, contacts, everything).
+Then confirm the deployed commit is the one you just pushed:
+
+```
+curl -s https://jobvana.in/api/health     # {"ok":true,"gitSha":"<short sha>"}
+```
+
+If `gitSha` doesn't match `git rev-parse --short HEAD`, the rebuild didn't
+land - check that `git pull` actually succeeded rather than aborting on a
+dirty working tree.
+
+Pending database migrations are applied automatically on container start.
+
+The SQLite DB, resumes and JobRight session live in the
+`/volume1/docker/jobvana-data` host directory (§2b), so they survive rebuilds.
+`docker compose down -v` does **not** touch a bind mount - to fully reset,
+stop the stack and delete that directory's contents yourself (this deletes
+all data - users, jobs, contacts, everything).
+
+## Recovering the JobRight session
+
+Every Add Job reuses one shared, logged-in JobRight browser session. When it
+is missing, the automation falls back to an interactive login against
+jobright.ai, which frequently trips their bot checks and fails with a
+`Sign in` click timeout.
+
+The session is stored in the DB and mirrored to
+`/volume1/docker/jobvana-data/jobright_state.json` after every successful
+task. To restore a dead one, drop a known-good Playwright `storageState` JSON
+at that path and restart - it is picked up on boot whenever the DB has none.
+Note that re-saving the JobRight credentials from the Admin page clears the
+stored session on purpose, so a re-login is attempted with the new password.
+
+When a run does fail, the automation writes a full-page screenshot and HTML
+snapshot to `/volume1/docker/jobvana-data/debug/` - check there first to see
+what jobright.ai actually served the headless browser.
