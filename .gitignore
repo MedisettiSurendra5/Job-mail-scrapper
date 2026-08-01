@@ -15,7 +15,7 @@ server/dist/
 # /data/ is the container's DATA_DIR bind-mount target, /server/data/ the dev
 # default. Both previously escaped this list, which is how a live production
 # app.db ended up committed and blocking `git pull` on the NAS.
-/data/
+/data/*
 !/data/.gitkeep
 /server/data/
 

@@ -8,7 +8,7 @@ const SCOPES = [
   "email",
 ];
 
-export const GOOGLE_CALLBACK_PATH = "/api/auth/google/callback";
+const CALLBACK_PATH = "/api/auth/google/callback";
 
 export function isGoogleOAuthConfigured(): boolean {
   return !!(env.googleClientId && env.googleClientSecret);
@@ -21,13 +21,13 @@ export function isGoogleOAuthConfigured(): boolean {
 // scheme rather than the plaintext hop from the tunnel/reverse proxy.
 export function resolveGoogleRedirectUri(req: Request): string {
   if (env.googleRedirectUri) return env.googleRedirectUri;
-  return `${req.protocol}://${req.get("host")}${GOOGLE_CALLBACK_PATH}`;
+  return `${req.protocol}://${req.get("host")}${CALLBACK_PATH}`;
 }
 
-// `redirectUri` is passed in rather than read from env because Google
-// requires the value used to build the consent URL and the one sent with the
-// code exchange to match byte for byte - see resolveGoogleRedirectUri in
-// routes/auth.ts, which derives both from the same request.
+// `redirectUri` is passed in rather than read from env because Google requires
+// the value used to build the consent URL and the one sent with the code
+// exchange to match byte for byte; routes/auth.ts derives both from the same
+// request via resolveGoogleRedirectUri above.
 export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: env.googleClientId!,
