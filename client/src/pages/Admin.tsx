@@ -150,6 +150,19 @@ export function Admin() {
     }
   }
 
+  async function deleteUser(user: AdminUser) {
+    if (!confirm(`Permanently delete ${user.email}? This removes all their jobs, contacts, and resumes too.`)) return;
+    setError(null);
+    setMessage(null);
+    try {
+      await api.delete(`/admin/users/${user.id}`);
+      setMessage("User deleted.");
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to delete user");
+    }
+  }
+
   async function createPromoCode(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -349,6 +362,7 @@ export function Admin() {
               <th>Expires</th>
               <th></th>
               <th>Locked</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -391,6 +405,17 @@ export function Admin() {
                     title={u.id === currentUser?.id ? "You can't lock your own account" : "Lock this account"}
                     onChange={() => toggleLocked(u)}
                   />
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-small btn-danger"
+                    disabled={u.id === currentUser?.id}
+                    title={u.id === currentUser?.id ? "Use Profile > Delete account to delete your own account" : "Delete this user"}
+                    onClick={() => deleteUser(u)}
+                  >
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api";
 import type { BillingInfo, Profile as ProfileType } from "../api";
 import { PLAN_CATALOG } from "../api";
 import { useToast } from "../Toast";
+import { useAuth } from "../AuthContext";
 
 const OAUTH_RESULT_MESSAGE: Record<string, { text: string; kind: "success" | "error" }> = {
   connected: { text: "Gmail connected.", kind: "success" },
@@ -25,7 +26,12 @@ export function Profile() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const { show } = useToast();
+  const { logout } = useAuth();
 
   async function load() {
     const p = await api.get<ProfileType>("/users/me");
@@ -123,6 +129,20 @@ export function Profile() {
       show(e instanceof ApiError ? e.message : "Failed to delete resume", "error");
     } finally {
       setResumeActionId(null);
+    }
+  }
+
+  async function handleDeleteAccount(e: FormEvent) {
+    e.preventDefault();
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await api.delete("/users/me", { password: deletePassword });
+      await logout();
+    } catch (e) {
+      setDeleteError(e instanceof ApiError ? e.message : "Failed to delete account");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -282,6 +302,50 @@ export function Profile() {
           );
         })()}
       </form>
+
+      <div className="card">
+        <h2>Delete account</h2>
+        <p className="muted">
+          Permanently deletes your account and everything tied to it - jobs you've added, contacts, resumes, and
+          your application tracker history. This can't be undone.
+        </p>
+        {!showDeleteConfirm ? (
+          <button type="button" className="btn-secondary btn-danger" onClick={() => setShowDeleteConfirm(true)}>
+            Delete my account
+          </button>
+        ) : (
+          <form onSubmit={handleDeleteAccount}>
+            {deleteError && <div className="error">{deleteError}</div>}
+            <label>
+              Confirm your password
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                autoFocus
+                required
+              />
+            </label>
+            <div className="contact-body-actions">
+              <button type="submit" className="btn-danger" disabled={deleting || !deletePassword}>
+                {deleting ? "Deleting..." : "Permanently delete my account"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeletePassword("");
+                  setDeleteError(null);
+                }}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

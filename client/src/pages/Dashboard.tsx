@@ -16,7 +16,6 @@ const TASK_LABEL: Record<Task["type"], string> = {
   pull_emails: "Pulling contacts",
   send_email: "Sending resume",
   run_search: "Search",
-  sync_github_h1b: "Recommended sync",
   sync_application_tracker: "Syncing applications",
 };
 
@@ -73,8 +72,6 @@ export function Dashboard() {
       show("Search complete - results added to your job list.", "success");
     } else if (task.type === "add_job") {
       show("Job added and contacts pulled.", "success");
-    } else if (task.type === "sync_github_h1b") {
-      show("Recommended jobs updated.", "success");
     }
   });
 
@@ -91,7 +88,6 @@ export function Dashboard() {
   const [maxPerRun, setMaxPerRun] = useState(10);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
 
   // Date filter + calendar view are Pro/Elite only - effectivePlan comes
   // from the existing /billing/me endpoint (same one Billing.tsx uses)
@@ -194,19 +190,6 @@ export function Dashboard() {
       setSearchError(e instanceof ApiError ? e.message : "Failed to start search");
     } finally {
       setSearching(false);
-    }
-  }
-
-  async function handleSyncRecommended() {
-    setSyncing(true);
-    try {
-      const { taskId } = await api.post<{ taskId: number }>("/jobs/recommended/sync");
-      watch(taskId, "sync_github_h1b");
-      show("Recommended sync started - new jobs will appear below shortly.", "info");
-    } catch (e) {
-      show(e instanceof ApiError ? e.message : "Failed to start sync", "error");
-    } finally {
-      setSyncing(false);
     }
   }
 
@@ -419,12 +402,6 @@ export function Dashboard() {
             Recommended ({recommendedJobs.length})
           </button>
         </div>
-
-        {sourceFilter === "recommended" && user?.role === "admin" && (
-          <button type="button" className="btn-secondary btn-small" onClick={handleSyncRecommended} disabled={syncing}>
-            {syncing ? "Syncing..." : "Sync now"}
-          </button>
-        )}
 
         <input
           type="search"

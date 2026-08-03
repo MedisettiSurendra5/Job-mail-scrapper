@@ -1,13 +1,15 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import fs from "fs";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../db";
 import { encrypt } from "../crypto";
-import { requireAuth } from "../middleware/auth";
+import { clearAuthCookie, requireAuth } from "../middleware/auth";
 import { isGoogleOAuthConfigured } from "../automation/googleOAuth";
 import { resumePathFor } from "../paths";
 import { getEffectivePlan } from "../billing";
+import { deleteUserAccount } from "../accountDeletion";
 import { PLANS } from "../types";
 
 export const usersRouter = Router();
@@ -129,6 +131,26 @@ usersRouter.get("/me/resumes/:id/file", async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${resume.filename.replace(/"/g, "")}"`);
   fs.createReadStream(path).pipe(res);
+});
+
+const deleteAccountSchema = z.object({ password: z.string().min(1) });
+
+// Permanent, self-service account deletion - requires re-entering the
+// current password (not just the auth cookie) since this is irreversible
+// and wipes every job/contact/resume the member owns, mirroring the
+// re-auth bar set for login itself.
+usersRouter.delete("/me", async (req, res) => {
+  const parsed = deleteAccountSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter your password to confirm" });
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (!(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
+    return res.status(401).json({ error: "Incorrect password" });
+  }
+
+  await deleteUserAccount(user.id);
+  clearAuthCookie(res);
+  res.json({ ok: true });
 });
 
 // Lets a user fall back to app-password sending if they want to stop using

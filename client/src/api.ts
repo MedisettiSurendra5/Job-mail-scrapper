@@ -47,7 +47,8 @@ export const api = {
     request<T>(path, { method: "PUT", body: data !== undefined ? JSON.stringify(data) : undefined }),
   patch: <T>(path: string, data?: unknown) =>
     request<T>(path, { method: "PATCH", body: data !== undefined ? JSON.stringify(data) : undefined }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  delete: <T>(path: string, data?: unknown) =>
+    request<T>(path, { method: "DELETE", body: data !== undefined ? JSON.stringify(data) : undefined }),
   upload: async <T>(path: string, formData: FormData): Promise<T> => {
     const res = await timedFetch(`${BASE}${path}`, { method: "POST", credentials: "include", body: formData }, UPLOAD_TIMEOUT_MS);
     if (!res.ok) {
@@ -129,7 +130,7 @@ export interface Contact {
 
 export interface Task {
   id: number;
-  type: "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_github_h1b" | "sync_application_tracker";
+  type: "add_job" | "pull_emails" | "send_email" | "run_search" | "sync_application_tracker";
   status: "queued" | "running" | "done" | "failed";
   error: string | null;
 }

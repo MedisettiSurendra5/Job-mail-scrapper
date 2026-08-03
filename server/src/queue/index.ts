@@ -8,7 +8,6 @@ import {
   runSearch,
   saveJobrightSession,
 } from "../automation/jobright";
-import { fetchTopSoftwareEngineerJobs } from "../automation/githubH1b";
 import { sendOutreachEmail } from "../automation/mailer";
 import { GoogleRefreshTokenRevokedError, refreshAccessToken } from "../automation/googleOAuth";
 import { classifyEmail, fetchApplicationEmails } from "../automation/emailTracker";
@@ -87,6 +86,26 @@ async function pullAndStoreContacts(
   return storeContacts(job.id, pulled);
 }
 
+// Job.jobRightId is @unique, so the placeholder row created by POST /jobs
+// (before JobRight's id for the posting is even known) can collide with a
+// job someone already added - possibly via a different URL that resolves to
+// the same underlying posting. True visibility mirrors canSeeJob in
+// routes/jobs.ts: your own job, anything an admin added, or you being the
+// admin. run_search avoids this entirely by checking first (jobRightId is
+// known up front there); add_job can't, since the row has to exist before
+// the JobRight call that reveals the id.
+async function canReuseExistingJob(newJobId: number, existingOwnerId: number): Promise<boolean> {
+  const [newJob, existingOwner] = await Promise.all([
+    prisma.job.findUnique({ where: { id: newJobId }, select: { addedById: true } }),
+    prisma.user.findUnique({ where: { id: existingOwnerId }, select: { role: true } }),
+  ]);
+  if (!newJob) return false;
+  if (newJob.addedById === existingOwnerId) return true;
+  if (existingOwner?.role === "admin") return true;
+  const newJobOwner = await prisma.user.findUnique({ where: { id: newJob.addedById }, select: { role: true } });
+  return newJobOwner?.role === "admin";
+}
+
 // Add-by-URL and pulling Insider Connection emails are one continuous
 // pipeline from the user's point of view (paste URL -> click Add Job -> the
 // job shows up with its contacts already pulled), so both steps run back to
@@ -100,6 +119,21 @@ jobrightQueue.register("add_job", async (payload: { jobId: number; url: string }
   try {
     context = await getJobrightContext();
     const result = await addExternalJob(context, payload.url);
+
+    const existing = await prisma.job.findUnique({ where: { jobRightId: result.jobId } });
+    if (existing && existing.id !== payload.jobId) {
+      if (!(await canReuseExistingJob(payload.jobId, existing.addedById))) {
+        throw new Error("This job has already been added.");
+      }
+      // Already tracked under a different row (e.g. reached via two
+      // different URLs, or added twice) - drop the just-created placeholder
+      // instead of erroring, so the member just lands on the job they (or
+      // an admin) already have.
+      await prisma.job.delete({ where: { id: payload.jobId } }).catch(() => {});
+      await saveJobrightSession(context);
+      return;
+    }
+
     await prisma.job.update({
       where: { id: payload.jobId },
       data: { jobRightId: result.jobId, title: result.title, company: result.company },
@@ -204,48 +238,6 @@ jobrightQueue.register(
     }
   }
 );
-
-// Syncs the top of jobright-ai's public "Software Engineer" H1B tracker
-// (github.com/jobright-ai/Daily-H1B-Jobs-In-Tech) into the Recommended tab.
-// Every linked job already lives on jobright.ai, so this reuses the exact
-// same pull-contacts pipeline as run_search - only the source of jobRightIds
-// differs. The jobRightId unique constraint plus this findFirst check
-// together make re-running the sync (scheduled every 24h, or right after a
-// restart) a safe no-op for jobs already known.
-jobrightQueue.register("sync_github_h1b", async (payload: { requestedBy: number; limit?: number }) => {
-  const entries = await fetchTopSoftwareEngineerJobs(payload.limit ?? 50);
-  let context: BrowserContext | null = null;
-  try {
-    context = await getJobrightContext();
-    for (const entry of entries) {
-      const existing = await prisma.job.findFirst({ where: { jobRightId: entry.jobRightId } });
-      if (existing) continue;
-
-      const job = await prisma.job.create({
-        data: {
-          url: `https://jobright.ai/jobs/info/${entry.jobRightId}`,
-          jobRightId: entry.jobRightId,
-          status: "pending",
-          addedById: payload.requestedBy,
-          source: "github_h1b",
-        },
-      });
-
-      try {
-        await pullAndStoreContacts(context, { id: job.id, jobRightId: entry.jobRightId, url: job.url });
-      } catch (e: any) {
-        // One bad job in the batch shouldn't sink the rest of the sync.
-        await prisma.job.update({
-          where: { id: job.id },
-          data: { status: "error", errorMessage: sanitizeErrorMessage(String(e?.message || e)) },
-        });
-      }
-    }
-    await saveJobrightSession(context);
-  } finally {
-    await context?.close();
-  }
-});
 
 // Reads whatever's new in the member's inbox since the last sync (or the
 // last 90 days on a first run), classifies each candidate email, and

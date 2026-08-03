@@ -72,36 +72,10 @@ export async function initScheduler() {
     startRule(rule.id, rule.intervalHours);
   }
 
-  const admin = await prisma.user.findFirst({ where: { role: "admin" }, orderBy: { id: "asc" } });
-  if (admin) {
-    startGithubH1bSync(admin.id);
-    runGithubH1bSyncNow(admin.id).catch((e) => console.error("GitHub H1B sync failed:", e));
-  }
-
   const trackerUsers = await prisma.user.findMany({ where: { trackerEnabled: true } });
   for (const u of trackerUsers) {
     startTrackerSync(u.id);
   }
-}
-
-// Keeps the Recommended tab topped up from jobright-ai's public H1B tracker
-// repo (see automation/githubH1b.ts) - runs once at startup (so a fresh
-// deploy doesn't wait a full day for its first results) and every 24h after.
-// Attributed to the first admin account since these aren't a member's own
-// find - same visibility rule as any other admin-posted job (see
-// routes/jobs.ts canSeeJob), so every member sees them.
-const GITHUB_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
-let githubSyncTimer: ReturnType<typeof setInterval> | null = null;
-
-export function runGithubH1bSyncNow(adminId: number) {
-  return jobrightQueue.enqueue("sync_github_h1b", { requestedBy: adminId }, adminId);
-}
-
-function startGithubH1bSync(adminId: number) {
-  if (githubSyncTimer) clearInterval(githubSyncTimer);
-  githubSyncTimer = setInterval(() => {
-    runGithubH1bSyncNow(adminId).catch((e) => console.error("GitHub H1B sync failed:", e));
-  }, GITHUB_SYNC_INTERVAL_MS);
 }
 
 // Keeps a member's Application Tracker (auto-classified from their Gmail

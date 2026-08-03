@@ -7,6 +7,7 @@ import { prisma } from "../db";
 import { encrypt } from "../crypto";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { jobrightQueue } from "../queue";
+import { deleteUserAccount } from "../accountDeletion";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -58,6 +59,28 @@ adminRouter.patch("/users/:id", async (req, res) => {
 
   const user = await prisma.user.update({ where: { id: targetId }, data });
   res.json({ id: user.id, plan: user.plan, planExpiresAt: user.planExpiresAt, locked: user.locked });
+});
+
+// Permanent - wipes every job/contact/resume the target owns along with the
+// account (see accountDeletion.ts for why each table needs explicit
+// cleanup). Same "not yourself" rule as locking, plus a last-admin guard so
+// the team can't be left with no one able to reach this page.
+adminRouter.delete("/users/:id", async (req, res) => {
+  const targetId = Number(req.params.id);
+  if (targetId === req.user!.id) {
+    return res.status(400).json({ error: "You can't delete your own account here - use Profile > Delete account" });
+  }
+
+  const target = await prisma.user.findUnique({ where: { id: targetId } });
+  if (!target) return res.status(404).json({ error: "User not found" });
+
+  if (target.role === "admin") {
+    const otherAdmins = await prisma.user.count({ where: { role: "admin", id: { not: targetId } } });
+    if (otherAdmins === 0) return res.status(400).json({ error: "Can't delete the last admin account" });
+  }
+
+  await deleteUserAccount(targetId);
+  res.json({ ok: true });
 });
 
 const promoCodeSchema = z.object({
