@@ -1,5 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import fs from "fs/promises";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import { encrypt } from "../crypto";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { jobrightQueue } from "../queue";
 import { deleteUserAccount } from "../accountDeletion";
+import { storageStatePath } from "../paths";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -120,6 +122,19 @@ adminRouter.post("/promo-codes", async (req, res) => {
 adminRouter.delete("/promo-codes/:id", async (req, res) => {
   await prisma.promoRedemption.deleteMany({ where: { promoCodeId: Number(req.params.id) } });
   await prisma.promoCode.delete({ where: { id: Number(req.params.id) } });
+  res.json({ ok: true });
+});
+
+// Clears just the saved Playwright session (cookies/localStorage), leaving
+// the email/password as-is - the "sign out and log back in" lever for when
+// a job/search run is failing at the JobRight login step and a stale or
+// half-broken session cookie is the suspect. The next task to need a
+// browser context does a full loginFresh() instead of reusing it. Separate
+// from PUT above (which also does this, but only as a side effect of
+// re-entering credentials you don't actually want to change).
+adminRouter.post("/jobright-config/reset-session", async (_req, res) => {
+  await prisma.jobRightConfig.updateMany({ where: { id: 1 }, data: { storageStateJson: null } });
+  await fs.rm(storageStatePath, { force: true });
   res.json({ ok: true });
 });
 

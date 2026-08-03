@@ -131,6 +131,23 @@ async function dumpDebugState(page: Page, label: string) {
   }
 }
 
+// A plain "Timeout X exceeded" only says the locator never resolved - it
+// doesn't say why. The two likely reasons need very different fixes (site
+// markup changed vs. a bot-check intercepted us), so surface which one it
+// actually was instead of letting the raw Playwright error stand alone.
+async function describeLoginFailure(page: Page, fallback: unknown): Promise<string> {
+  const fallbackMsg = fallback instanceof Error ? fallback.message : String(fallback);
+  try {
+    const bodyText = await page.locator("body").innerText({ timeout: 2000 });
+    if (/verify you.?re human|unusual traffic|checking your browser|security check|captcha/i.test(bodyText)) {
+      return `JobRight showed a bot-check/CAPTCHA page instead of the login form, so automation can't proceed. (${fallbackMsg})`;
+    }
+  } catch {
+    /* best-effort - fall through to the generic message below */
+  }
+  return `Could not find the expected login control - jobright.ai's page may have changed. Check the debug screenshot. (${fallbackMsg})`;
+}
+
 async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
   await page.goto("https://jobright.ai/", { waitUntil: "domcontentloaded" });
   await sleep(2000);
@@ -139,17 +156,26 @@ async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
     await robustClick(page, page.getByText("Sign in", { exact: false }).first(), 5, 6000);
   } catch (e) {
     await dumpDebugState(page, "login-open-modal-failed");
-    throw e;
+    throw new Error(await describeLoginFailure(page, e));
   }
   await sleep(1500);
 
   await page.getByPlaceholder("Email").fill(jrEmail, { timeout: 10000 });
   await page.getByPlaceholder("Password").fill(jrPassword, { timeout: 10000 });
   try {
-    await robustClick(page, page.getByRole("button", { name: "Sign in", exact: false }).first(), 5, 6000);
+    // Falls back to a bare `button[type="submit"]` in case JobRight ever
+    // renames the button's label (e.g. "Sign in" -> "Log in") - the label
+    // is presentation, but a login form's submit button is reliably the
+    // one with type="submit" regardless of copy.
+    const submitButton = page
+      .getByRole("button", { name: "Sign in", exact: false })
+      .or(page.getByRole("button", { name: "Log in", exact: false }))
+      .or(page.locator('button[type="submit"]'))
+      .first();
+    await robustClick(page, submitButton, 5, 6000);
   } catch (e) {
     await dumpDebugState(page, "login-submit-failed");
-    throw e;
+    throw new Error(await describeLoginFailure(page, e));
   }
 
   await safeWait(page);

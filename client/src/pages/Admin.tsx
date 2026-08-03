@@ -44,6 +44,7 @@ export function Admin() {
   const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resettingSession, setResettingSession] = useState(false);
 
   async function load() {
     const [{ users }, settings, jr, { contacts }, { promoCodes }] = await Promise.all([
@@ -82,6 +83,25 @@ export function Admin() {
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to save");
+    }
+  }
+
+  // "Sign out" of the shared JobRight session without touching the saved
+  // credentials - use this when jobs are failing at the login step and a
+  // stale/broken session cookie is the suspect. The next task to need a
+  // browser context re-logs-in from scratch.
+  async function resetJobRightSession() {
+    if (!confirm("Sign out of the shared JobRight session? The next job/search run will log back in from scratch.")) return;
+    setResettingSession(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.post("/admin/jobright-config/reset-session");
+      setMessage("Session cleared - the next run will log in fresh.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to reset session");
+    } finally {
+      setResettingSession(false);
     }
   }
 
@@ -215,6 +235,17 @@ export function Admin() {
           />
         </label>
         <button type="submit">Save</button>
+        {jrConfigured && (
+          <button
+            type="button"
+            className="btn-secondary btn-small"
+            onClick={resetJobRightSession}
+            disabled={resettingSession}
+            title="Clears the saved session cookies without changing the login - use this if job/search runs are failing at sign-in"
+          >
+            {resettingSession ? "Signing out..." : "Sign out (reset session)"}
+          </button>
+        )}
       </form>
 
       <form className="card" onSubmit={createUser}>
