@@ -78,11 +78,24 @@ async function dismissOrionPopup(page: Page) {
 // jobright pops up promo modals at unpredictable moments, which silently
 // intercept clicks anywhere in the flow. Dismiss whatever's blocking and
 // retry rather than failing outright.
-async function robustClick(page: Page, locator: ReturnType<Page["locator"]>, retries = 5, timeout = 3000, pause = 800) {
+async function robustClick(
+  page: Page,
+  locator: ReturnType<Page["locator"]>,
+  retries = 5,
+  timeout = 3000,
+  pause = 800,
+  dismissPopups = true
+) {
   let lastErr: unknown;
   for (let i = 0; i < retries; i++) {
-    await dismissOrionPopup(page);
-    await dismissAnyModal(page);
+    // dismissAnyModal() closes whatever antd modal has a close button
+    // showing - harmless (even helpful) before the login modal exists, but
+    // the login modal is itself a plain antd modal, so calling this once
+    // it's open just closes the very thing we're trying to submit.
+    if (dismissPopups) {
+      await dismissOrionPopup(page);
+      await dismissAnyModal(page);
+    }
     try {
       await locator.click({ timeout });
       return;
@@ -149,6 +162,11 @@ async function describeLoginFailure(page: Page, fallback: unknown): Promise<stri
 }
 
 async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
+  // ?from=homepage was tried as a shortcut to land with the form already
+  // open, but it actually surfaces a different "Welcome back" modal variant
+  // (Google/Apple SSO options, different field ids) - not the plain form
+  // this was built against. Plain homepage + clicking the nav trigger is
+  // the flow that's actually been verified to produce form#sign-in.
   await page.goto("https://jobright.ai/", { waitUntil: "domcontentloaded" });
   await sleep(2000);
 
@@ -160,19 +178,25 @@ async function loginFresh(page: Page, jrEmail: string, jrPassword: string) {
   }
   await sleep(1500);
 
-  await page.getByPlaceholder("Email").fill(jrEmail, { timeout: 10000 });
-  await page.getByPlaceholder("Password").fill(jrPassword, { timeout: 10000 });
   try {
-    // Falls back to a bare `button[type="submit"]` in case JobRight ever
-    // renames the button's label (e.g. "Sign in" -> "Log in") - the label
-    // is presentation, but a login form's submit button is reliably the
-    // one with type="submit" regardless of copy.
-    const submitButton = page
-      .getByRole("button", { name: "Sign in", exact: false })
-      .or(page.getByRole("button", { name: "Log in", exact: false }))
-      .or(page.locator('button[type="submit"]'))
-      .first();
-    await robustClick(page, submitButton, 5, 6000);
+    // A logged-out/cookie-less browser (every automated run, by design -
+    // see getJobrightContext) gets a different modal than a browser with
+    // prior JobRight history: antd auto-generates field ids as
+    // `{form-id}_{field-name}`, and this variant's form is id="basic"
+    // (confirmed live), not id="sign-in" - that was the modal shown to an
+    // already-visited browser, which automation never actually is.
+    await page.locator("#basic_email").fill(jrEmail, { timeout: 10000 });
+    await page.locator("#basic_password").fill(jrPassword, { timeout: 10000 });
+  } catch (e) {
+    await dumpDebugState(page, "login-fill-failed");
+    throw new Error(await describeLoginFailure(page, e));
+  }
+  try {
+    // Scoped to the form (id="basic", matching the field ids above) rather
+    // than matched by page-wide text, since the nav bar's own "Sign in"
+    // trigger renders separately and could otherwise be matched instead.
+    const submitButton = page.locator('form#basic button[type="submit"]');
+    await robustClick(page, submitButton, 5, 6000, 800, false);
   } catch (e) {
     await dumpDebugState(page, "login-submit-failed");
     throw new Error(await describeLoginFailure(page, e));
