@@ -255,12 +255,7 @@ export function Profile() {
                   <strong>{r.filename}</strong>
                   {r.isPrimary && <span className="chip chip-sent" style={{ marginLeft: "0.6em" }}>Primary</span>}
                   <div className="contact-body-actions">
-                    <a
-                      className="btn-secondary btn-small"
-                      href={`/api/users/me/resumes/${r.id}/file`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
+                    <a className="btn-secondary btn-small" href={`/api/users/me/resumes/${r.id}/file`}>
                       View
                     </a>
                     {!r.isPrimary && (
